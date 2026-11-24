@@ -110,8 +110,74 @@ test('Movimientos: agregar, editar y borrar por id, en orden del más nuevo al m
   assert.equal(l.length, 1);
 });
 
-test('Respaldos que no son de esta versión', () => {
-  assert.match(F.leerRespaldo('MC1:abc.def').error, /Mis créditos/);
-  assert.match(F.leerRespaldo('[{"id":"a","who":"piti","amount":1000,"date":"2026-11-01"}]').error, /Mesadas/);
+test('Mesadas: respaldo, totales por hija y del mes', () => {
+  const r = F.leerRespaldo(JSON.stringify([
+    { id: 'a1', who: 'piti', amount: 10000, subject: 'Almuerzo', date: '2026-11-03', ts: 1 },
+    { id: 'a2', who: 'emi', amount: 15000, subject: 'Ropa', date: '2026-11-10', ts: 2 },
+    { id: 'a3', who: 'piti', amount: 5000, subject: 'Almuerzo', date: '2026-10-20', ts: 3 },
+  ]));
+  assert.equal(r.app, 'mesadas');
+  const m = F.aplicar('mesadas.json', null, r.cambios[0].cambio);
+  const e = F.estadoMesadas(m, '2026-11-24');
+  assert.deepEqual([e.por.Piti.total, e.por.Piti.mes, e.por.Emi.mes, e.mes, e.total], [15000, 10000, 15000, 25000, 30000]);
+  assert.equal(e.sugerencias[0], 'Almuerzo');
+});
+
+// ---- Cálculo de la app Mis créditos, copiado sin cambios (repo pablocarvallo/mis-creditos), para comparar ----
+const MC = (() => {
+  const num = v => { const n = Number(v); return isFinite(n) ? n : 0; };
+  const limitar = (v, a, b) => Math.min(b, Math.max(a, v));
+  const RED_CREDITO = 10000;
+  function tasaMensual(c){ const t = num(c.tasa) / 100; return c.tasaTipo === 'anual' ? t / 12 : t; }
+  function factorVP(i, d){ if (d <= 0) return 0; if (i === 0) return d; const f = Math.pow(1 + i, d); return (f - 1) / (i * f); }
+  function exacto(c, i, k){ const d = c.plazo - k; if (d <= 0) return 0; return Math.max(0, c.cuota * factorVP(i, d) + c.ajuste); }
+  function redondear(v, mon){ return mon === 'UF' ? Math.round(v * 100) / 100 : RED_CREDITO * Math.round(v / RED_CREDITO); }
+  function calc(c){
+    const n = c.plazo, i = tasaMensual(c), k = Math.min(n, c.pagadasInicial + c.pagos.length), rem = n - k;
+    const vp = c.cuota * factorVP(i, rem);
+    const saldo = redondear(exacto(c, i, k), c.moneda), inicial = redondear(exacto(c, i, 0), c.moneda);
+    return { k, rem, saldo, inicial, porPagar: c.cuota * rem, pct: inicial > 0 ? limitar((inicial - saldo) / inicial, 0, 1) : k / n };
+  }
+  const aB64 = t => { const b = new TextEncoder().encode(t); let bin = ''; for (let i = 0; i < b.length; i++) bin += String.fromCharCode(b[i]); return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const huella = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
+  const codigo = (creditos) => { const cuerpo = aB64(JSON.stringify({ v: 1, creditos })); return 'MC1:' + cuerpo + '.' + huella(cuerpo); };
+  return { calc, codigo };
+})();
+
+test('Mis créditos: el código MC1 se lee y los saldos coinciden con la app Mis créditos', () => {
+  const viejos = [
+    { nombre: 'Consumo Banco', tipo: 'consumo', moneda: 'CLP', cuota: 187432, plazo: 36, tasa: 1.49, tasaTipo: 'mensual', ajuste: 0, pagadasInicial: 10, pagos: [{ fecha: '2026-10-05' }, { fecha: '2026-11-05' }], montoInicial: 0, pendienteBase: 0, abonos: [], creado: 1700000000000 },
+    { nombre: 'Auto', tipo: 'consumo', moneda: 'CLP', cuota: 245000, plazo: 48, tasa: 15.6, tasaTipo: 'anual', ajuste: -3500, pagadasInicial: 40, pagos: [], montoInicial: 0, pendienteBase: 0, abonos: [], creado: 1700000000001 },
+    { nombre: 'Hipotecario', tipo: 'hipotecario', moneda: 'UF', cuota: 18.34567, plazo: 240, tasa: 4.1, tasaTipo: 'anual', ajuste: 0, pagadasInicial: 60, pagos: [{ fecha: '2026-11-01' }], montoInicial: 0, pendienteBase: 0, abonos: [], creado: 1700000000002 },
+    { nombre: 'Préstamo familiar', tipo: 'abonos', moneda: 'CLP', cuota: 0, plazo: 1, tasa: 0, tasaTipo: 'mensual', ajuste: 0, pagadasInicial: 0, pagos: [], montoInicial: 1000000, pendienteBase: 800000, abonos: [{ fecha: '2026-11-01', monto: 100000 }], creado: 1700000000003 },
+  ];
+  const r = F.leerRespaldo(MC.codigo(viejos));
+  assert.equal(r.app, 'creditos');
+  const cr = F.aplicar('creditos.json', null, r.cambios[0].cambio);
+  const E = F.estadoCreditos(cr, '2026-11-24');
+  viejos.slice(0, 3).forEach((v, i) => {
+    const a = MC.calc(v), b = E.lista[i].e;
+    assert.deepEqual([b.k, b.rem, b.saldo, b.inicial, b.porPagar, b.pct], [a.k, a.rem, a.saldo, a.inicial, a.porPagar, a.pct], v.nombre);
+  });
+  assert.deepEqual([E.lista[3].e.saldo, E.lista[3].e.pagado], [700000, 300000]);
+  assert.equal(E.total.n, 2);
+  assert.equal(E.total.cuotasMes, 187432 + 245000);
+  assert.equal(E.total.saldo % 100000, 0);
+  assert.match(F.leerRespaldo('MC1:abc.def').error, /incompleto/);
+});
+
+test('Mis créditos: pagar una cuota, deshacer y abonar', () => {
+  let cr = F.aplicar('creditos.json', null, { id: 'c', tipo: 'credito', credito: { id: 'x', nombre: 'X', tipo: 'consumo', moneda: 'CLP', cuota: 100000, plazo: 3, tasa: 0, tasa_tipo: 'mensual', ajuste: 0, pagadas_inicial: 1, pagos: [], creado: 1 } });
+  cr = F.aplicar('creditos.json', cr, { id: 'p1', tipo: 'pagoCuota', idCredito: 'x', fecha: '2026-11-24' });
+  cr = F.aplicar('creditos.json', cr, { id: 'p2', tipo: 'pagoCuota', idCredito: 'x', fecha: '2026-12-24' });
+  cr = F.aplicar('creditos.json', cr, { id: 'p3', tipo: 'pagoCuota', idCredito: 'x', fecha: '2027-01-24' });   // ya no quedan cuotas
+  assert.equal(cr.creditos[0].pagos.length, 2);
+  assert.equal(F.estadoCredito(cr.creditos[0], '2026-12-30').rem, 0);
+  cr = F.aplicar('creditos.json', cr, { id: 'd', tipo: 'deshacerPago', idCredito: 'x' });
+  assert.equal(F.estadoCredito(cr.creditos[0], '2026-12-30').rem, 1);
+});
+
+test('Respaldos que no son de Finanzas', () => {
+  assert.match(F.leerRespaldo('{"v":1,"cases":[],"items":[]}').error, /Casa/);
   assert.ok(F.leerRespaldo('hola').error);
 });

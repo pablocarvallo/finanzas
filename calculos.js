@@ -2,9 +2,10 @@
 // (node --test pruebas/*.test.js). Las reglas son las de las apps FAN, Master, LiderBCI, Copec y Pagos del mes, para
 // que los números coincidan durante el mes de convivencia.
 // Datos en pablocarvallo/datos: cuentas.json (punto de partida de cada cuenta), movimientos/AAAA-MM.json (un archivo
-// por mes; los avisos del banco y de Copec llegan solos) y pagos.json (pagos del mes).
+// por mes; los avisos del banco y de Copec llegan solos), pagos.json (pagos del mes), mesadas.json (aportes a Piti y
+// Emi) y creditos.json (créditos de consumo, hipotecario y deudas con abonos, de ingreso manual).
 
-export const VERSION = '1.0.1';
+export const VERSION = '1.1.0';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;
@@ -40,6 +41,8 @@ export const PLANTILLAS = {
     { id: 'copec', nombre: 'Copec Pay', tipo: 'prepago', fuente: 'copec', saldo_inicial: null },
   ] },
   'pagos.json': { titulo: '', secciones: [{ id: 'inicio', nombre: 'A inicios de mes', pagos: [] }, { id: 'mitad', nombre: 'A mitad de mes', pagos: [] }], historial: [] },
+  'mesadas.json': { personas: ['Piti', 'Emi'], aportes: [] },
+  'creditos.json': { creditos: [] },
 };
 export function plantilla(archivo) { return /^movimientos\//.test(archivo) ? [] : copiar(PLANTILLAS[archivo]); }
 export function cuenta(cs, id) { return ((cs && cs.cuentas) || []).find((c) => c.id === id) || null; }
@@ -184,6 +187,69 @@ export function estadoPagos(p) {
   return { total: todos.length, hechos: hechos.length, pendientes: todos.filter((x) => !x.hecho) };
 }
 
+/* ---------- Mesadas ---------- */
+// aportes: { id, hija ('Piti' o 'Emi'), monto, asunto, fecha, registrado (momento en que se anotó) }
+export function estadoMesadas(md, hoy) {
+  const ym = hoy.slice(0, 7), personas = (md && md.personas) || ['Piti', 'Emi'];
+  const aportes = ((md && md.aportes) || []).filter((a) => a && esFecha(a.fecha) && a.monto > 0)
+    .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : (b.registrado || 0) - (a.registrado || 0)));
+  const por = {};
+  personas.forEach((p) => {
+    const suyos = aportes.filter((a) => a.hija === p);
+    por[p] = { total: suyos.reduce((s, a) => s + a.monto, 0), mes: suyos.filter((a) => a.fecha.slice(0, 7) === ym).reduce((s, a) => s + a.monto, 0), n: suyos.length };
+  });
+  const mes = personas.reduce((s, p) => s + por[p].mes, 0);
+  // Asuntos para sugerir: los más usados últimamente
+  const vistos = {};
+  aportes.slice(0, 40).forEach((a) => { const k = String(a.asunto || '').trim(); if (k) vistos[k] = (vistos[k] || 0) + 1; });
+  const sugerencias = Object.keys(vistos).sort((x, y) => vistos[y] - vistos[x]).slice(0, 4);
+  return { personas, aportes, por, mes, total: aportes.reduce((s, a) => s + a.monto, 0), sugerencias: sugerencias.length ? sugerencias : ['Almuerzo', 'Ropa', 'Helados'] };
+}
+
+/* ---------- Mis créditos ---------- */
+// Las reglas de la app Mis créditos. Consumo (pesos) e hipotecario (UF): saldo = cuota × ((1+i)^D − 1) / (i × (1+i)^D)
+// + ajuste, con D = cuotas que faltan e i la tasa mensual (la anual se divide por 12). Cada crédito en pesos se redondea
+// a $10.000 y el total de consumo a $100.000; en UF, a dos decimales. Deuda con abonos: sin interés ni cuotas,
+// pendiente = pendiente al ingresarla − abonos.
+export const RED_CREDITO = 10000, RED_TOTAL = 100000;
+const tasaMensual = (c) => { const t = (+c.tasa || 0) / 100; return c.tasa_tipo === 'anual' ? t / 12 : t; };
+function factorVP(i, d) { if (d <= 0) return 0; if (i === 0) return d; const f = Math.pow(1 + i, d); return (f - 1) / (i * f); }
+function exacto(c, i, k) { const d = c.plazo - k; if (d <= 0) return 0; return Math.max(0, c.cuota * factorVP(i, d) + (+c.ajuste || 0)); }
+const redondear = (v, mon) => (mon === 'UF' ? Math.round(v * 100) / 100 : RED_CREDITO * Math.round(v / RED_CREDITO));
+const limitar = (v, a, b) => Math.min(b, Math.max(a, v));
+export function estadoCredito(c, hoy) {
+  if (c.tipo === 'abonos') {
+    const abonado = (c.abonos || []).reduce((s, x) => s + x.monto, 0);
+    const saldo = Math.max(0, (c.pendiente_base || 0) - abonado), inicial = Math.max(c.monto_inicial || 0, c.pendiente_base || 0);
+    return { saldo, inicial, abonado, pagado: inicial - saldo, rem: saldo > 0 ? 1 : 0, pct: inicial > 0 ? limitar((inicial - saldo) / inicial, 0, 1) : 0 };
+  }
+  const n = c.plazo, i = tasaMensual(c), k = Math.min(n, (c.pagadas_inicial || 0) + (c.pagos || []).length), rem = n - k;
+  const vp = c.cuota * factorVP(i, rem);
+  const saldo = redondear(exacto(c, i, k), c.moneda), inicial = redondear(exacto(c, i, 0), c.moneda);
+  const interesProx = rem > 0 ? vp * i : 0;
+  const ym = hoy.slice(0, 7), pagoEsteMes = (c.pagos || []).some((p) => String(p.fecha).slice(0, 7) === ym);
+  return {
+    n, i, k, rem, vp, saldo, inicial, interesProx, capitalProx: rem > 0 ? c.cuota - interesProx : 0,
+    porPagar: c.cuota * rem, interesRest: Math.max(0, c.cuota * rem - vp), pagoEsteMes,
+    pct: inicial > 0 ? limitar((inicial - saldo) / inicial, 0, 1) : k / n,
+    termino: rem === 0 ? null : sumarMesesYM(ym, rem - (pagoEsteMes ? 0 : 1)),
+  };
+}
+export function estadoCreditos(cr, hoy) {
+  const lista = ((cr && cr.creditos) || []).slice().sort((a, b) => ((a.creado || 0) - (b.creado || 0)) || (a.id < b.id ? -1 : 1))
+    .map((c) => ({ c, e: estadoCredito(c, hoy) }));
+  const t = { suma: 0, inicial: 0, cuotasMes: 0, porPagar: 0, termino: null, activos: 0, n: 0 };
+  lista.filter((x) => x.c.tipo === 'consumo').forEach(({ c, e }) => {
+    t.n++; t.suma += e.saldo; t.inicial += e.inicial; t.porPagar += e.porPagar;
+    if (e.rem > 0) { t.activos++; t.cuotasMes += c.cuota; if (e.termino && (!t.termino || e.termino > t.termino)) t.termino = e.termino; }
+  });
+  t.saldo = RED_TOTAL * Math.round(t.suma / RED_TOTAL);
+  t.pct = t.inicial > 0 ? limitar((t.inicial - t.suma) / t.inicial, 0, 1) : 0;
+  return { lista, total: t };
+}
+export const ufTxt = (v) => 'UF\u00a0' + Number(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+export const montoCredito = (v, c) => (c.moneda === 'UF' ? ufTxt(v) : pesos(v));
+
 /* ---------- Avisos ---------- */
 export function avisos(E, P, hoy) {
   const out = [];
@@ -269,6 +335,25 @@ const CAMBIOS = {
     d.titulo = titulo;
   },
   reemplazarPagos(d, { estado }) { Object.keys(d).forEach((k) => { if (k !== 'ultimos_cambios') delete d[k]; }); Object.assign(d, estado); },
+  // mesadas.json
+  aporte(d, { aporte }) { d.aportes = (d.aportes || []).filter((x) => x.id !== aporte.id).concat(aporte); },
+  borrarAporte(d, { idAporte }) { d.aportes = (d.aportes || []).filter((x) => x.id !== idAporte); },
+  reemplazarMesadas(d, { aportes }) { d.aportes = aportes; },
+  // creditos.json
+  credito(d, { credito }) {
+    d.creditos = d.creditos || [];
+    const i = d.creditos.findIndex((x) => x.id === credito.id);
+    if (i >= 0) d.creditos[i] = Object.assign({}, d.creditos[i], credito); else d.creditos.push(credito);
+  },
+  borrarCredito(d, { idCredito }) { d.creditos = (d.creditos || []).filter((x) => x.id !== idCredito); },
+  pagoCuota(d, { idCredito, fecha }) {
+    const c = (d.creditos || []).find((x) => x.id === idCredito);
+    if (c && (c.pagadas_inicial || 0) + (c.pagos || []).length < c.plazo) c.pagos = (c.pagos || []).concat({ fecha });
+  },
+  deshacerPago(d, { idCredito }) { const c = (d.creditos || []).find((x) => x.id === idCredito); if (c && (c.pagos || []).length) c.pagos = c.pagos.slice(0, -1); },
+  abonoCredito(d, { idCredito, abono }) { const c = (d.creditos || []).find((x) => x.id === idCredito); if (c) c.abonos = (c.abonos || []).concat(abono); },
+  deshacerAbono(d, { idCredito }) { const c = (d.creditos || []).find((x) => x.id === idCredito); if (c && (c.abonos || []).length) c.abonos = c.abonos.slice(0, -1); },
+  reemplazarCreditos(d, { creditos }) { d.creditos = creditos; },
 };
 
 /* ---------- Respaldos de las apps antiguas ---------- */
@@ -284,7 +369,7 @@ const momentoValido = (at) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(at |
 export function leerRespaldo(texto) {
   let d;
   const t = String(texto || '').trim();
-  if (/^MC1:/.test(t)) return { error: 'Este es el respaldo de Mis créditos: Finanzas lo traerá en la próxima versión.' };
+  if (/^MC1:/i.test(t)) return leerMisCreditos(t);
   try { d = JSON.parse(t); } catch (e) { return { error: 'El texto no es un respaldo. Cópialo de nuevo desde la app antigua.' }; }
 
   if (d && (d.app === 'fan' || d.app === 'copec') && Array.isArray(d.movimientos)) {
@@ -351,7 +436,48 @@ export function leerRespaldo(texto) {
     return { app: 'pagos', nombre: 'Pagos del mes', cambios: [{ archivo: 'pagos.json', cambio: { tipo: 'reemplazarPagos', estado } }], resumen: n + ' ' + plural(n, 'pago', 'pagos') + ' en ' + estado.secciones.length + ' secciones' };
   }
 
-  if (Array.isArray(d) && d.length && d[0] && ('who' in d[0] || 'hija' in d[0] || 'p' in d[0])) return { error: 'Este es el respaldo de Mesadas: Finanzas lo traerá en la próxima versión.' };
+  if (Array.isArray(d) && d.length && d[0] && 'who' in d[0] && 'amount' in d[0]) {
+    const NOMBRES = { piti: 'Piti', emi: 'Emi' };
+    const aportes = d.filter((r) => r && NOMBRES[r.who] && esFecha(r.date) && +r.amount > 0).map((r) => ({
+      id: idDe('a-', r.id), hija: NOMBRES[r.who], monto: Math.round(+r.amount), asunto: limpiar(r.subject, 40), fecha: r.date, registrado: +r.ts > 0 ? +r.ts : 0 }));
+    if (!aportes.length) return { error: 'El respaldo de Mesadas no tiene aportes.' };
+    const total = aportes.reduce((s, a) => s + a.monto, 0);
+    return { app: 'mesadas', nombre: 'Mesadas', cambios: [{ archivo: 'mesadas.json', cambio: { tipo: 'reemplazarMesadas', aportes } }],
+      resumen: aportes.length + ' ' + plural(aportes.length, 'aporte', 'aportes') + ' por ' + pesos(total) };
+  }
   if (d && Array.isArray(d.cases)) return { error: 'Este es el respaldo de Maletas: se trae en la app Casa.' };
-  return { error: 'No reconozco este respaldo. Sirven los de FAN, Master, LiderBCI, Copec y Pagos del mes.' };
+  return { error: 'No reconozco este respaldo. Sirven los de FAN, Master, LiderBCI, Copec, Pagos del mes, Mesadas y Mis créditos.' };
+}
+
+// Código «MC1:» de Mis créditos: JSON en base64 (url) con una huella de control al final
+const huellaMC = (t) => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
+function deB64(t) {
+  t = t.replace(/-/g, '+').replace(/_/g, '/'); while (t.length % 4) t += '=';
+  const bin = atob(t), b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(b);
+}
+function leerMisCreditos(t) {
+  const partes = t.slice(4).replace(/\s+/g, '').split('.');
+  if (partes.length !== 2 || huellaMC(partes[0]) !== partes[1].toLowerCase()) return { error: 'El código de Mis créditos está incompleto o cambió algún carácter. Cópialo de nuevo.' };
+  let o;
+  try { o = JSON.parse(deB64(partes[0])); } catch (e) { return { error: 'El código de Mis créditos no se pudo leer.' }; }
+  const arr = Array.isArray(o) ? o : o && Array.isArray(o.creditos) ? o.creditos : [];
+  const n = (v) => (isFinite(+v) ? +v : 0);
+  const creditos = arr.map((x, i) => {
+    const tipo = x.tipo === 'hipotecario' ? 'hipotecario' : x.tipo === 'abonos' ? 'abonos' : 'consumo';
+    const plazo = Math.max(1, Math.round(n(x.plazo)));
+    return {
+      id: 'cr' + i + '-' + String(n(x.creado) || i).replace(/\D/g, ''), nombre: limpiar(x.nombre, 40) || 'Crédito', tipo,
+      moneda: tipo !== 'abonos' && x.moneda === 'UF' ? 'UF' : 'CLP', cuota: Math.max(0, n(x.cuota)), plazo, tasa: Math.max(0, n(x.tasa)),
+      tasa_tipo: x.tasaTipo === 'anual' ? 'anual' : 'mensual', ajuste: n(x.ajuste), pagadas_inicial: Math.min(plazo, Math.max(0, Math.round(n(x.pagadasInicial)))),
+      pagos: (Array.isArray(x.pagos) ? x.pagos : []).map((p) => ({ fecha: String((p && p.fecha) || '') })),
+      monto_inicial: Math.max(0, Math.round(n(x.montoInicial))), pendiente_base: Math.max(0, Math.round(n(x.pendienteBase))),
+      abonos: (Array.isArray(x.abonos) ? x.abonos : []).filter((p) => p && n(p.monto) > 0).map((p) => ({ fecha: String(p.fecha || ''), monto: Math.round(n(p.monto)) })),
+      creado: n(x.creado) || i,
+    };
+  }).filter((c) => (c.tipo === 'abonos' ? c.monto_inicial : c.cuota) > 0);
+  if (!creditos.length) return { error: 'El código de Mis créditos no trae créditos.' };
+  return { app: 'creditos', nombre: 'Mis créditos', cambios: [{ archivo: 'creditos.json', cambio: { tipo: 'reemplazarCreditos', creditos } }],
+    resumen: creditos.length + ' ' + plural(creditos.length, 'crédito', 'créditos') + ' con sus pagos y abonos' };
 }

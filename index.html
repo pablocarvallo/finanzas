@@ -369,6 +369,10 @@ body.en-maletas .c-desvanecer { display: none; }
 .c-dos-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .c-campo input[type="time"] { display: block; width: 100%; min-height: 50px; border: 0; border-radius: 14px; background: var(--relleno); color: var(--tinta); font: 400 17px/22px var(--font-sans); padding: 13px 14px; -webkit-appearance: none; appearance: none; text-align: left; }
 .d-heroe .c-cifra-texto { font: 700 26px/32px var(--font-sans); letter-spacing: -0.2px; margin-top: 6px; }
+.c-volver { appearance: none; border: 0; background: none; padding: 0; color: var(--acento); font: 600 15px/18px var(--font-sans); display: inline-flex; align-items: center; gap: 2px; cursor: pointer; }
+.c-hija { padding: 14px; display: flex; flex-direction: column; gap: 2px; }
+.c-subtitulo { margin: 0; font: 600 17px/22px var(--font-sans); color: var(--tinta-2); }
+.c-ajustar .d-texto strong { white-space: normal; }
 /*APP:END*/
 </style>
 </head>
@@ -380,7 +384,7 @@ body.en-maletas .c-desvanecer { display: none; }
 <div class="c-pie">
   <nav class="d-barra-pie" aria-label="Secciones">
     <div class="d-barra" id="pestanas"></div>
-    <button class="d-boton-circular d-boton-circular--acento" data-a="anotar" aria-label="Anotar movimiento"></button>
+    <button class="d-boton-circular d-boton-circular--acento" data-a="anotar" aria-label="Anotar"></button>
   </nav>
 </div>
 <div class="c-fondo-hoja" id="fondoHoja" data-a="cerrar" hidden></div>
@@ -391,7 +395,7 @@ body.en-maletas .c-desvanecer { display: none; }
 import * as F from './calculos.js';
 
 const API = 'https://domesticas-api.vercel.app';
-const BASE = ['cuentas.json', 'pagos.json'];
+const BASE = ['cuentas.json', 'pagos.json', 'mesadas.json', 'creditos.json'];
 const CL = { llave: 'fin27.llave', datos: 'fin27.datos', cola: 'fin27.cola', prefs: 'fin27.prefs', sync: 'fin27.sync', ui: 'fin27.ui', extra: 'fin27.meses' };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -422,6 +426,7 @@ const I = {
   moneda: '<circle cx="12" cy="12" r="8.5"/><path d="M14.5 9.2A2.8 2.8 0 0 0 12 8c-1.5 0-2.6.8-2.6 2s1.1 1.7 2.6 2 2.6.8 2.6 2-1.1 2-2.6 2a2.8 2.8 0 0 1-2.5-1.2M12 6.5V8M12 16v1.5"/>',
   escudo: '<path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6z"/><path d="M12 9v6M9 12h6"/>',
   ajustes: '<path d="M19.11 9.96L21.42 10.17L21.42 13.83L19.11 14.04A7.4 7.4 0 0 1 18.47 15.59L19.96 17.37L17.37 19.96L15.59 18.47A7.4 7.4 0 0 1 14.04 19.11L13.83 21.42L10.17 21.42L9.96 19.11A7.4 7.4 0 0 1 8.41 18.47L6.63 19.96L4.04 17.37L5.53 15.59A7.4 7.4 0 0 1 4.89 14.04L2.58 13.83L2.58 10.17L4.89 9.96A7.4 7.4 0 0 1 5.53 8.41L4.04 6.63L6.63 4.04L8.41 5.53A7.4 7.4 0 0 1 9.96 4.89L10.17 2.58L13.83 2.58L14.04 4.89A7.4 7.4 0 0 1 15.59 5.53L17.37 4.04L19.96 6.63L18.47 8.41A7.4 7.4 0 0 1 19.11 9.96Z"/><circle cx="12" cy="12" r="3"/>',
+  volver: '<path d="M15 5l-7 7 7 7"/>',
   enlace: '<path d="M14 5h5v5"/><path d="M19 5l-8 8"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
 };
 const ico = (n, t = 24, g = 2) => `<svg viewBox="0 0 24 24" width="${t}" height="${t}" fill="none" stroke="currentColor" stroke-width="${g}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
@@ -435,7 +440,8 @@ let srv = leerLS(CL.datos, {});
 let cola = leerLS(CL.cola, []);
 let prefs = leerLS(CL.prefs, { tema: 'auto', vidrio: 'claro' });
 let sync = leerLS(CL.sync, { at: 0 });
-let ui = Object.assign({ tab: 'resumen', cuenta: 'fan' }, leerLS(CL.ui, {}));
+let ui = Object.assign({ tab: 'resumen', cuenta: 'fan', hija: '' }, leerLS(CL.ui, {}));
+if (ui.tab === 'mas') ui.tab = 'ajustes';
 let extra = leerLS(CL.extra, []);           // meses anteriores que se pidió ver
 let hoja = null;
 
@@ -459,7 +465,8 @@ function datos() {
   const cuentas = vista('cuentas.json'), pagos = vista('pagos.json'), h = hoy();
   const movs = mesesNecesarios().flatMap((ym) => vista(F.archivoMes(ym)));
   const E = F.estadoCuentas(cuentas, movs, h), P = F.estadoPagos(pagos);
-  return { cuentas, pagos, movs, E, P, h };
+  const mesadas = vista('mesadas.json'), creditos = vista('creditos.json');
+  return { cuentas, pagos, movs, E, P, h, mesadas, creditos, M: F.estadoMesadas(mesadas, h), CR: F.estadoCreditos(creditos, h) };
 }
 
 /* ---------- Guardado en GitHub a través de domesticas-api ---------- */
@@ -520,7 +527,7 @@ function sincronizar(releer) {
       }
       sync = { at: Date.now() };
     } catch (e) {
-      sync = { at: sync.at || 0, error: e.status === 401 ? 'La llave de este iPhone ya no es válida. Conéctalo de nuevo en Más.' : e.status ? e.message : 'Sin conexión', status: e.status || 0 };
+      sync = { at: sync.at || 0, error: e.status === 401 ? 'La llave de este iPhone ya no es válida. Conéctalo de nuevo en Ajustes.' : e.status ? e.message : 'Sin conexión', status: e.status || 0 };
     } finally {
       guardarLS(CL.sync, sync);
       enCurso = null;
@@ -575,7 +582,7 @@ function filaMov(m, opts = {}) {
 }
 function estadoSync() {
   let punto = '', txt;
-  if (!llave) { punto = 'aviso'; txt = 'Sin conectar: los registros quedan solo en este iPhone. Conéctalo en Más.'; }
+  if (!llave) { punto = 'aviso'; txt = 'Sin conectar: los registros quedan solo en este iPhone. Conéctalo en Ajustes.'; }
   else if (sync.error) { punto = sync.status === 401 ? 'neg' : 'aviso'; txt = sync.error + (cola.length ? ' · ' + cola.length + ' ' + F.plural(cola.length, 'cambio', 'cambios') + ' por guardar' : ''); }
   else if (cola.length) txt = 'Guardando ' + cola.length + ' ' + F.plural(cola.length, 'cambio', 'cambios') + '…';
   else txt = 'Guardado en GitHub' + (sync.at ? ' · ' + hace(sync.at) : '');
@@ -605,15 +612,20 @@ function tarjetaCuenta(id, e) {
 }
 function vistaResumen() {
   const D = datos(), { E, h } = D, ym = h.slice(0, 7);
-  const tarjetas = E.master.gastoMes + E.liderbci.gastoMes, total = E.fan.gastoMes + tarjetas + E.copec.gastoMes;
+  const tarjetas = E.master.gastoMes + E.liderbci.gastoMes, cuentas = E.fan.gastoMes + E.copec.gastoMes, total = cuentas + tarjetas + D.M.mes;
   const todos = F.avisos(E, D.P, h);
   const urgentes = todos.filter((x) => x.tono !== 'info'), info = todos.filter((x) => x.tono === 'info');
-  let html = heroe('Gastado en ' + F.nombreMes(ym), F.pesos(total), [['FAN', F.pesos(E.fan.gastoMes)], ['Tarjetas', F.pesos(tarjetas)], ['Copec', F.pesos(E.copec.gastoMes)]]);
+  let html = heroe('Gastado en ' + F.nombreMes(ym), F.pesos(total), [['Cuentas', F.pesos(cuentas)], ['Tarjetas', F.pesos(tarjetas)], ['Mesadas', F.pesos(D.M.mes)]]);
   if (urgentes.length) html += seccion('Avisos') + listaAvisos(urgentes);
   html += seccion('Cuentas', '<a href="#" data-a="tab" data-t="cuentas">Detalle</a>') + '<div class="c-rejilla">' + F.ORDEN.map((id) => tarjetaCuenta(id, E[id])).join('') + '</div>';
+  const T = D.CR.total;
+  html += seccion('Mesadas y créditos') + '<ul class="d-lista d-vidrio">' +
+    fila({ icono: 'alcancia', titulo: 'Mesadas', sub: D.M.personas.map((p) => p + ' ' + F.pesos(D.M.por[p].mes)).join(' · ') + ' en ' + F.nombreMes(ym), valor: F.pesos(D.M.mes), a: 'tab', attrs: 'data-t="mesadas"', chev: true }) +
+    fila({ icono: 'moneda', titulo: 'Mis créditos', sub: T.n ? (T.activos ? 'Cuotas del mes ' + F.pesos(T.cuotasMes) + (T.termino ? ' · término ' + ymTxt(T.termino) : '') : 'Consumo pagado') : 'Sin créditos ingresados', valor: T.n ? F.pesos(T.saldo) : '', a: 'tab', attrs: 'data-t="creditos"', chev: true }) +
+    fila({ icono: 'escudo', titulo: 'Gastos médicos', sub: 'Sigue en su app mientras llega a Finanzas', a: 'abrir', attrs: 'data-url="https://pablocarvallo.github.io/cigna/"', extraHtml: `<span class="c-chev">${ico('enlace', 18)}</span>` }) + '</ul>';
   const ult = D.movs.slice().sort((a, b) => (F.momento(a) < F.momento(b) ? 1 : -1)).slice(0, 6);
   html += seccion('Últimos movimientos');
-  html += ult.length ? '<ul class="d-lista d-vidrio">' + ult.map((m) => filaMov(m, { conCuenta: true, h })).join('') + '</ul>' : '<p class="c-texto">Todavía no hay movimientos. Llegan solos con los avisos del banco y de Copec, o tráelos desde Más → Traer datos.</p>';
+  html += ult.length ? '<ul class="d-lista d-vidrio">' + ult.map((m) => filaMov(m, { conCuenta: true, h })).join('') + '</ul>' : '<p class="c-texto">Todavía no hay movimientos. Llegan solos con los avisos del banco y de Copec, o tráelos desde Ajustes → Traer datos.</p>';
   if (info.length) html += seccion('Por completar') + listaAvisos(info);
   return html + estadoSync();
 }
@@ -689,12 +701,52 @@ function vistaPagos() {
   return html + estadoSync();
 }
 
+/* ---------- Mesadas ---------- */
+function vistaMesadas() {
+  const D = datos(), M = D.M, h = D.h, ym = h.slice(0, 7);
+  let html = heroe('Entregado en ' + F.nombreMes(ym), F.pesos(M.mes), M.personas.map((p) => [p, F.pesos(M.por[p].mes)]));
+  html += '<div class="c-dos">' + M.personas.map((p) => `<article class="d-vidrio c-hija"><span class="c-cuenta-etq">${p} · en total</span><div class="c-cuenta-cifra">${F.pesos(M.por[p].total)}</div><div class="c-cuenta-det">${M.por[p].n} ${F.plural(M.por[p].n, 'aporte', 'aportes')}</div></article>`).join('') + '</div>';
+  html += `<p class="c-texto">Total entregado a las dos: <b>${F.pesos(M.total)}</b>. Lo del mes se suma a lo gastado en el Resumen.</p>`;
+  html += '<div class="c-acciones"><button class="d-boton" data-a="hoja" data-h="aporte">Anotar aporte</button></div>';
+  const filtro = M.personas.includes(ui.hija) ? ui.hija : '';
+  html += seccion('Historial') + `<div class="d-segmentos c-segmentos" role="group" aria-label="Filtrar" style="margin-top:0;margin-bottom:12px">` +
+    [['', 'Todas']].concat(M.personas.map((p) => [p, p])).map(([v, t]) => `<button data-a="hija" data-v="${v}" aria-pressed="${filtro === v}">${t}</button>`).join('') + '</div>';
+  const lista = M.aportes.filter((a) => !filtro || a.hija === filtro);
+  if (!lista.length) return html + '<p class="c-texto">Sin aportes. Anota uno o trae el respaldo de Mesadas desde Ajustes.</p>' + estadoSync();
+  const meses = [...new Set(lista.map((a) => a.fecha.slice(0, 7)))];
+  meses.slice(0, 12).forEach((mm) => {
+    const xs = lista.filter((a) => a.fecha.slice(0, 7) === mm);
+    html += `<div class="d-seccion" style="margin-top:14px"><h3 class="c-subtitulo">${F.tituloMes(mm)}</h3><span class="c-seccion-nota">${F.pesos(xs.reduce((s, a) => s + a.monto, 0))}</span></div>` +
+      '<ul class="d-lista d-vidrio">' + xs.map((a) => fila({ icono: 'alcancia', titulo: esc(a.asunto || 'Sin asunto'), sub: esc(a.hija) + ' · ' + cuando(a.fecha, h), valor: F.pesos(a.monto), a: 'hoja', attrs: `data-h="aporte" data-id="${esc(a.id)}"` })).join('') + '</ul>';
+  });
+  return html + estadoSync();
+}
+
+/* ---------- Mis créditos ---------- */
+function vistaCreditos() {
+  const D = datos(), CR = D.CR, T = CR.total, h = D.h;
+  let html;
+  if (!T.n) html = heroe('Falta pagar (consumo)', CR.lista.length ? 'Sin consumo' : 'Sin créditos', [], null, true);
+  else html = heroe('Falta pagar (consumo)', F.pesos(T.saldo), [['Cuotas del mes', F.pesos(T.cuotasMes)], ['Término', T.termino ? ymTxt(T.termino) : 'Pagado']], T.activos ? T.pct : 1);
+  if (T.n) html += `<p class="c-texto">${T.activos ? 'Has pagado cerca del <b>' + Math.min(99, Math.floor(T.pct * 100)) + ' %</b> de la deuda inicial de ' + (T.n === 1 ? 'este crédito' : 'estos ' + T.n + ' créditos') + ' de consumo. En cuotas faltan <b>' + F.pesos(T.porPagar) + '</b>.' : '<b>Terminaste de pagar tus créditos de consumo.</b>'}</p>`;
+  html += '<div class="c-acciones"><button class="d-boton d-boton--discreto" data-a="hoja" data-h="credito">Agregar crédito</button></div>';
+  if (!CR.lista.length) return html + '<p class="c-texto">Agrega tus créditos o trae el código de respaldo de Mis créditos desde Ajustes.</p>' + estadoSync();
+  const grupos = [['consumo', 'Consumo'], ['hipotecario', 'Hipotecario'], ['abonos', 'Deudas con abonos']];
+  grupos.forEach(([tipo, titulo]) => {
+    const xs = CR.lista.filter((x) => x.c.tipo === tipo);
+    if (!xs.length) return;
+    html += seccion(titulo) + '<ul class="d-lista d-vidrio">' + xs.map(({ c, e }) => {
+      const sub = tipo === 'abonos' ? 'Abonado ' + F.pesos(e.abonado) + ' de ' + F.pesos(e.inicial) : e.rem ? 'Cuota ' + (e.k + 1) + ' de ' + e.n + ' · ' + F.montoCredito(c.cuota, c) + (e.pagoEsteMes ? ' · pagada este mes' : '') : 'Pagado';
+      return fila({ icono: tipo === 'hipotecario' ? 'casa' : 'moneda', titulo: esc(c.nombre), sub: esc(sub), valor: F.montoCredito(e.saldo, c) + `<small>${Math.min(e.rem ? 99 : 100, Math.floor(e.pct * 100))} % pagado</small>`, a: 'hoja', attrs: `data-h="credito-ver" data-id="${esc(c.id)}"`, chev: true, cls: 'c-ajustar' });
+    }).join('') + '</ul>';
+  });
+  if (CR.lista.some((x) => x.c.tipo !== 'consumo')) html += '<p class="c-nota">El hipotecario (en UF) y las deudas con abonos no se suman al total de consumo.</p>';
+  return html + estadoSync();
+}
+
 /* ---------- Más ---------- */
-function vistaMas() {
-  let html = seccion('Más cuentas') + '<ul class="d-lista d-vidrio">' +
-    fila({ icono: 'alcancia', titulo: 'Mesadas', sub: 'Sigue en su app mientras llega a Finanzas', a: 'abrir', attrs: 'data-url="https://pablocarvallo.github.io/hijas/"', extraHtml: `<span class="c-chev">${ico('enlace', 18)}</span>` }) +
-    fila({ icono: 'moneda', titulo: 'Mis créditos', sub: 'Sigue en su app mientras llega a Finanzas', a: 'abrir', attrs: 'data-url="https://pablocarvallo.github.io/mis-creditos/"', extraHtml: `<span class="c-chev">${ico('enlace', 18)}</span>` }) +
-    fila({ icono: 'escudo', titulo: 'Gastos médicos', sub: 'Sigue en su app mientras llega a Finanzas', a: 'abrir', attrs: 'data-url="https://pablocarvallo.github.io/cigna/"', extraHtml: `<span class="c-chev">${ico('enlace', 18)}</span>` }) + '</ul>';
+function vistaAjustes() {
+  let html = '';
   html += seccion('Conexión');
   if (!llave) {
     html += '<div class="d-vidrio c-tarjeta"><form data-f="conectar"><label class="c-campo"><span>Código de 8 letras y números</span><input type="text" name="codigo" class="c-codigo" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="ABCD2345" required></label>' +
@@ -707,14 +759,14 @@ function vistaMas() {
       fila({ icono: 'llave', titulo: '<span class="c-peligro">Desconectar este iPhone</span>', sub: 'Los datos quedan en GitHub; para volver necesitas un código nuevo', a: 'desconectar', attrs: 'data-confirmar="Toca de nuevo para desconectar"' }) + '</ul>';
   }
   html += seccion('Traer datos de las apps antiguas') +
-    '<p class="c-texto" style="margin-top:0">En FAN, Master, LiderBCI, Copec o Pagos del mes, abre <b>Respaldo de datos → Copiar respaldo</b> y pégalo aquí. Trae el punto de partida y los movimientos; los que ya llegaron por aviso no se repiten.</p>' +
+    '<p class="c-texto" style="margin-top:0">En FAN, Master, LiderBCI, Copec, Pagos del mes o Mesadas, abre <b>Respaldo de datos → Copiar respaldo</b>; en Mis créditos, <b>Copiar respaldo</b> (el código que empieza con «MC1:»). Pégalo aquí. Los movimientos que ya llegaron por aviso no se repiten.</p>' +
     '<div class="d-vidrio c-tarjeta" style="margin-top:12px"><form data-f="importar"><label class="c-campo"><span>Respaldo copiado</span><textarea name="texto" spellcheck="false" autocapitalize="off" placeholder="Pega aquí el texto del respaldo"></textarea></label>' +
     '<p class="c-error" id="errImportar" hidden></p><div style="display:grid;margin-top:14px"><button class="d-boton d-boton--ancho">Revisar respaldo</button></div></form></div>';
   const seg = (k, op) => `<div class="d-segmentos" role="group">${op.map(([v, t]) => `<button data-a="pref" data-k="${k}" data-v="${v}" aria-pressed="${prefs[k] === v}">${t}</button>`).join('')}</div>`;
   html += seccion('Apariencia') + '<ul class="d-lista d-vidrio">' +
     `<li class="d-fila c-ajuste-seg"><span class="d-texto"><strong>Tema</strong></span>${seg('tema', [['auto', 'Automático'], ['claro', 'Claro'], ['oscuro', 'Oscuro']])}</li>` +
     `<li class="d-fila c-ajuste-seg"><span class="d-texto"><strong>Vidrio</strong></span>${seg('vidrio', [['claro', 'Claro'], ['tintado', 'Tintado']])}</li></ul>`;
-  html += seccion('Respaldo') + '<ul class="d-lista d-vidrio">' + fila({ icono: 'copiar', titulo: 'Copiar respaldo de Finanzas', sub: 'Cuentas, pagos y los movimientos de los meses cargados', a: 'respaldo', chev: true }) + '</ul>' +
+  html += seccion('Respaldo') + '<ul class="d-lista d-vidrio">' + fila({ icono: 'copiar', titulo: 'Copiar respaldo de Finanzas', sub: 'Cuentas, pagos, mesadas, créditos y los movimientos de los meses cargados', a: 'respaldo', chev: true }) + '</ul>' +
     '<p class="c-nota">Cada cambio queda además en el historial de GitHub. Las versiones nuevas llegan solas al abrir Finanzas; si borras el icono, se borra la llave de este iPhone (los datos siguen en GitHub).</p>';
   return html + `<p class="c-estado">Finanzas ${F.VERSION} · Domésticas 27</p>`;
 }
@@ -782,9 +834,62 @@ function contenidoHoja() {
     return `<form data-f="mes-nuevo"><h2>Empezar un mes nuevo</h2><p>${esc(p.titulo || 'El mes actual')} queda en el historial con lo que se marcó. Los pagos se desmarcan y se quitan los de solo un mes.</p>` +
       campo('Título del mes nuevo', `<input type="text" name="titulo" maxlength="40" value="${esc(p.titulo === titulo ? F.tituloMes(F.sumarMesesYM(h.slice(0, 7), 1)) : titulo)}" required>`) + pie('Empezar mes') + '</form>';
   }
+  if (t === 'aporte') {
+    const M = D.M, x = hoja.id ? M.aportes.find((a) => a.id === hoja.id) : null;
+    const v = x || { hija: M.personas.includes(ui.hija) ? ui.hija : M.personas[0], monto: '', asunto: '', fecha: h };
+    return `<form data-f="aporte"><h2>${x ? 'Aporte' : 'Anotar aporte'}</h2>` +
+      `<fieldset class="c-campo"><legend>Para</legend>${chips('hija', M.personas.map((p) => [p, p]), v.hija)}</fieldset>` + campoMonto('monto', 'Monto', v.monto) +
+      campo('Asunto', `<input type="text" name="asunto" maxlength="40" autocapitalize="sentences" value="${esc(v.asunto)}" placeholder="Ej. almuerzo">`) +
+      `<div class="c-chips" style="margin-top:10px">${M.sugerencias.map((t2) => `<button type="button" class="c-mini c-mini--discreto" data-a="sugerencia" data-v="${esc(t2)}">${esc(t2)}</button>`).join('')}</div>` +
+      campo('Fecha', `<input type="date" name="fecha" value="${v.fecha}" max="${h}" required>`) + pie(x ? 'Guardar cambios' : 'Anotar aporte', x ? borrarBtn('aporte') : '') + '</form>';
+  }
+  if (t === 'credito-ver') {
+    const x = D.CR.lista.find((y) => y.c.id === hoja.id);
+    if (!x) return '<h2>Crédito no encontrado</h2><div class="c-pila"><button class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
+    const { c, e } = x, m = (v) => F.montoCredito(v, c);
+    let html = `<h2>${esc(c.nombre)}</h2>`;
+    if (c.tipo === 'abonos') {
+      html += `<p>Pendiente <b>${m(e.saldo)}</b> de ${m(e.inicial)} · abonado ${m(e.abonado)}.</p>` + '<ul class="d-lista d-vidrio">' +
+        ((c.abonos || []).slice().reverse().slice(0, 8).map((a) => fila({ titulo: 'Abono', sub: F.esFecha(a.fecha) ? cuando(a.fecha, h) : 'sin fecha', valor: m(a.monto) })).join('') || fila({ titulo: 'Sin abonos todavía' })) + '</ul>' +
+        `<div class="c-pila"><button class="d-boton" data-a="hoja" data-h="abono-credito" data-id="${esc(c.id)}">Registrar abono</button>` +
+        ((c.abonos || []).length ? `<button class="d-boton d-boton--discreto" data-a="deshacer-abono" data-id="${esc(c.id)}" data-confirmar="Toca de nuevo para quitar el último abono">Quitar el último abono</button>` : '');
+    } else {
+      html += `<p>Saldo <b>${m(e.saldo)}</b> · ${e.k} de ${e.n} cuotas pagadas · ${Math.min(e.rem ? 99 : 100, Math.floor(e.pct * 100))} % de la deuda inicial (${m(e.inicial)}).</p>` + '<ul class="d-lista d-vidrio">' +
+        fila({ titulo: 'Cuota', valor: c.moneda === 'UF' ? 'UF\u00a0' + String(c.cuota).replace('.', ',') : F.pesos(c.cuota) }) +
+        fila({ titulo: 'Tasa', valor: String(c.tasa).replace('.', ',') + ' % ' + (c.tasa_tipo === 'anual' ? 'anual' : 'mensual') }) +
+        (e.rem ? fila({ titulo: 'Próxima cuota', sub: 'Interés ' + m(e.interesProx) + ' · capital ' + m(e.capitalProx) }) : '') +
+        fila({ titulo: 'Falta pagar en cuotas', sub: 'Interés por pagar ' + m(e.interesRest), valor: m(e.porPagar) }) +
+        (e.termino ? fila({ titulo: 'Término estimado', valor: ymTxt(e.termino) }) : '') + '</ul>' +
+        `<div class="c-pila">${e.rem ? `<button class="d-boton" data-a="hoja" data-h="pago-cuota" data-id="${esc(c.id)}">Registrar pago de cuota</button>` : ''}` +
+        ((c.pagos || []).length ? `<button class="d-boton d-boton--discreto" data-a="deshacer-pago" data-id="${esc(c.id)}" data-confirmar="Toca de nuevo para quitar el último pago">Quitar el último pago${(c.pagos[c.pagos.length - 1] || {}).fecha && F.esFecha(c.pagos[c.pagos.length - 1].fecha) ? ' (' + F.fechaCorta(c.pagos[c.pagos.length - 1].fecha) + ')' : ''}</button>` : '');
+    }
+    return html + `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="credito" data-id="${esc(c.id)}">Editar datos</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>`;
+  }
+  if (t === 'pago-cuota' || t === 'abono-credito') {
+    const x = D.CR.lista.find((y) => y.c.id === hoja.id);
+    if (!x) return '';
+    return `<form data-f="${t}"><h2>${t === 'pago-cuota' ? 'Pago de cuota' : 'Abono'}</h2><p>${esc(x.c.nombre)}${t === 'pago-cuota' ? ' · cuota ' + (x.e.k + 1) + ' de ' + x.e.n : ''}</p>` +
+      (t === 'abono-credito' ? campoMonto('monto', 'Monto del abono', '') : '') + campo('Fecha', `<input type="date" name="fecha" value="${h}" max="${h}" required>`) + pie('Registrar') + '</form>';
+  }
+  if (t === 'credito') {
+    const x = hoja.id ? (D.creditos.creditos || []).find((c) => c.id === hoja.id) : null;
+    const v = Object.assign({ nombre: '', tipo: 'consumo', cuota: '', plazo: '', tasa: '', tasa_tipo: 'mensual', ajuste: 0, pagadas_inicial: 0, monto_inicial: '', pendiente_base: '' }, x || {}, hoja.v || {});
+    let html = `<form data-f="credito"><h2>${x ? 'Editar crédito' : 'Crédito nuevo'}</h2>` + campo('Nombre', `<input type="text" name="nombre" maxlength="40" value="${esc(v.nombre)}" placeholder="Ej. Crédito de consumo Banco" required>`) +
+      `<fieldset class="c-campo"><legend>Tipo</legend>${chips('tipo', [['consumo', 'Consumo'], ['hipotecario', 'Hipotecario (UF)'], ['abonos', 'Con abonos']], v.tipo)}</fieldset>`;
+    if (v.tipo === 'abonos') {
+      html += campoMonto('monto_inicial', 'Monto inicial de la deuda', v.monto_inicial) + campoMonto('pendiente_base', 'Pendiente al ingresarla', v.pendiente_base);
+    } else {
+      html += campo(v.tipo === 'hipotecario' ? 'Cuota en UF' : 'Cuota mensual', `<div class="c-prefijo"><b>${v.tipo === 'hipotecario' ? 'UF' : '$'}</b><input type="text" name="cuota" inputmode="decimal" value="${v.cuota !== '' ? String(v.cuota).replace('.', ',') : ''}" required${v.tipo === 'hipotecario' ? ' style="padding-left:40px!important"' : ''}></div>`) +
+        `<div class="c-dos-campos">${campo('Plazo (cuotas)', `<input type="number" name="plazo" inputmode="numeric" min="1" max="600" value="${v.plazo}" required>`)}${campo('Pagadas al ingresarlo', `<input type="number" name="pagadas_inicial" inputmode="numeric" min="0" max="600" value="${v.pagadas_inicial || 0}">`)}</div>` +
+        `<div class="c-dos-campos">${campo('Tasa (%)', `<input type="text" name="tasa" inputmode="decimal" value="${v.tasa !== '' ? String(v.tasa).replace('.', ',') : ''}" required>`)}<fieldset class="c-campo"><legend>Tasa</legend>${chips('tasa_tipo', [['mensual', 'Mensual'], ['anual', 'Anual']], v.tasa_tipo)}</fieldset></div>` +
+        campo('Ajuste (opcional, para cuadrar con el banco)', `<input type="text" name="ajuste" inputmode="decimal" value="${v.ajuste ? String(v.ajuste).replace('.', ',') : ''}" placeholder="0">`);
+    }
+    return html + pie(x ? 'Guardar cambios' : 'Agregar crédito', x ? borrarBtn('crédito') : '') + '</form>';
+  }
   if (t === 'importar') {
     const r = hoja.respaldo;
-    return `<h2>Traer ${esc(r.nombre)}</h2><p>El respaldo trae <b>${esc(r.resumen)}</b>.</p><p>${r.app === 'pagos' ? 'Reemplaza la lista de pagos de Finanzas.' : 'Reemplaza el punto de partida de ' + esc(r.nombre) + ' y agrega los movimientos que falten; los que ya llegaron por aviso se quedan como están.'}</p>` +
+    const reemplaza = { pagos: 'Reemplaza la lista de pagos de Finanzas.', mesadas: 'Reemplaza los aportes de Mesadas en Finanzas.', creditos: 'Reemplaza los créditos de Finanzas.' }[r.app];
+    return `<h2>Traer ${esc(r.nombre)}</h2><p>El respaldo trae <b>${esc(r.resumen)}</b>.</p><p>${reemplaza || 'Reemplaza el punto de partida de ' + esc(r.nombre) + ' y agrega los movimientos que falten; los que ya llegaron por aviso se quedan como están.'}</p>` +
       `<div class="c-pila"><button class="d-boton" data-a="importar">Traer ${esc(r.nombre)}</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cancelar</button></div>`;
   }
   if (t === 'ayuda') return '<h2>Cómo funciona Finanzas</h2>' +
@@ -792,6 +897,8 @@ function contenidoHoja() {
     '<h3>Master</h3><p>Utilizado = el de partida, más compras, cargos y cuotas por cobrar, menos abonos. Las compras en cuotas ocupan todo su monto hasta pagarse; cada cuota se cobra en la facturación de su mes, que cierra cerca del día 22. Disponible = cupo − utilizado.</p>' +
     '<h3>LiderBCI</h3><p>Se anota a mano. Total del periodo = compras − abonos y devoluciones. Puntos: 6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto. Al pagar, «Cerrar periodo» guarda los puntos y deja el total en cero.</p>' +
     '<h3>Pagos del mes</h3><p>La lista de pagos de cada mes, en dos secciones. Avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.</p>' +
+    '<h3>Mesadas</h3><p>Los aportes a Piti y Emi, con su asunto. Lo entregado en el mes se suma a lo gastado en el Resumen.</p>' +
+    '<h3>Mis créditos</h3><p>Se ingresan a mano. Saldo = valor presente de las cuotas que faltan con la tasa del crédito (la anual se divide por 12), más el ajuste; cada crédito se redondea a $10.000 y el total de consumo a $100.000. El hipotecario va en UF y no se suma al total. Las deudas con abonos no tienen interés: pendiente menos abonos.</p>' +
     '<h3>Dónde se guarda</h3><p>En GitHub (pablocarvallo/datos), a través de la función domesticas-api, con la llave de este iPhone. Sin conexión, los cambios esperan en el iPhone.</p>' +
     '<div class="c-pila"><button class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
   return '';
@@ -837,9 +944,13 @@ const ACCIONES = {
     guardarLS(CL.ui, ui); window.scrollTo(0, 0); render();
   },
   cuenta(el) { ui.cuenta = el.dataset.c; guardarLS(CL.ui, ui); render(); },
-  anotar() { abrirHoja('mov'); },
+  anotar() { abrirHoja(ui.tab === 'mesadas' ? 'aporte' : ui.tab === 'creditos' ? 'credito' : 'mov'); },
   ayuda() { abrirHoja('ayuda'); },
   hoja(el) { abrirHoja(el.dataset.h, { id: el.dataset.id || null, s: el.dataset.s || null, v: el.dataset.cuenta ? { cuenta: el.dataset.cuenta } : null }); },
+  hija(el) { ui.hija = el.dataset.v; guardarLS(CL.ui, ui); render(); },
+  sugerencia(el) { const i = $('hoja').querySelector('input[name="asunto"]'); if (i) i.value = el.dataset.v; },
+  'deshacer-pago'(el) { hacer('creditos.json', { tipo: 'deshacerPago', idCredito: el.dataset.id }, 'quita el último pago de un crédito'); repintarHoja(); avisar('Pago quitado'); },
+  'deshacer-abono'(el) { hacer('creditos.json', { tipo: 'deshacerAbono', idCredito: el.dataset.id }, 'quita el último abono de una deuda'); repintarHoja(); avisar('Abono quitado'); },
   cerrar() { cerrarHoja(); },
   abrir(el) { window.open(el.dataset.url, '_blank', 'noopener'); },
   'mes-anterior'() {
@@ -859,13 +970,15 @@ const ACCIONES = {
       if (m) hacer(F.archivoMes(F.mesDe(m)), { tipo: 'borrarMovimiento', idMov: m.id }, 'elimina ' + (m.comercio || m.tipo) + ' de ' + NOMBRE[m.cuenta]);
     } else if (t === 'puntos') hacer('cuentas.json', { tipo: 'borrarPuntos', idMov: hoja.id }, 'elimina movimiento de puntos');
     else if (t === 'pago') hacer('pagos.json', { tipo: 'pagoBorrar', idPago: hoja.id }, 'elimina un pago');
+    else if (t === 'aporte') hacer('mesadas.json', { tipo: 'borrarAporte', idAporte: hoja.id }, 'elimina un aporte');
+    else if (t === 'credito') hacer('creditos.json', { tipo: 'borrarCredito', idCredito: hoja.id }, 'elimina un crédito');
     cerrarHoja(); avisar('Eliminado');
   },
   pref(el) { prefs[el.dataset.k] = el.dataset.v; guardarLS(CL.prefs, prefs); aplicarPrefs(); render(); },
   actualizar() { sincronizar(true).then(() => avisar(sync.error ? 'No se pudo actualizar' : 'Al día', sync.error || 'Datos traídos desde GitHub', !!sync.error)); },
   desconectar() { llave = null; guardarLS(CL.llave, null); sync = { at: 0 }; guardarLS(CL.sync, sync); render(); avisar('iPhone desconectado'); },
   respaldo() {
-    const D = datos(), archivosR = { 'cuentas.json': D.cuentas, 'pagos.json': D.pagos };
+    const D = datos(), archivosR = { 'cuentas.json': D.cuentas, 'pagos.json': D.pagos, 'mesadas.json': D.mesadas, 'creditos.json': D.creditos };
     mesesNecesarios().forEach((ym) => { archivosR[F.archivoMes(ym)] = vista(F.archivoMes(ym)); });
     const texto = JSON.stringify({ app: 'finanzas', version: 1, fecha: new Date().toISOString(), archivos: archivosR });
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(texto).then(() => avisar('Respaldo copiado', 'Pégalo en Notas para guardarlo'), () => avisar('No se pudo copiar', '', true));
@@ -962,6 +1075,52 @@ const FORMULARIOS = {
     hacer('pagos.json', { tipo: 'pagoGuardar', seccion: f.seccion.value, pago }, (hoja.id ? 'corrige el pago ' : 'agrega el pago ') + texto);
     cerrarHoja(); avisar(hoja && hoja.id ? 'Pago guardado' : 'Pago agregado');
   },
+  aporte(f) {
+    const monto = montoDe(f.monto.value), asunto = String(f.asunto.value || '').replace(/\s+/g, ' ').trim().slice(0, 40), fecha = f.fecha.value, h = hoy();
+    if (!(monto > 0)) return errorHoja('Escribe el monto, por ejemplo 10.000.');
+    if (!asunto) return errorHoja('Escribe el asunto, por ejemplo almuerzo.');
+    if (!F.esFecha(fecha) || fecha > h) return errorHoja('Indica una fecha que no sea futura.');
+    const previo = hoja.id ? datos().M.aportes.find((a) => a.id === hoja.id) : null;
+    const aporte = { id: hoja.id || F.nuevoId('a'), hija: f.hija.value, monto, asunto: asunto.charAt(0).toUpperCase() + asunto.slice(1), fecha, registrado: previo ? previo.registrado : Date.now() };
+    hacer('mesadas.json', { tipo: 'aporte', aporte }, (previo ? 'corrige aporte a ' : 'aporte a ') + aporte.hija + ': ' + aporte.asunto + ' ' + F.pesos(monto));
+    cerrarHoja(); avisar(previo ? 'Cambios guardados' : 'Aporte anotado', aporte.hija + ' · ' + F.pesos(monto));
+  },
+  'pago-cuota'(f) {
+    const fecha = f.fecha.value;
+    if (!F.esFecha(fecha)) return errorHoja('Indica la fecha del pago.');
+    hacer('creditos.json', { tipo: 'pagoCuota', idCredito: hoja.id, fecha }, 'pago de cuota ' + fecha);
+    const id = hoja.id; abrirHoja('credito-ver', { id }); avisar('Pago registrado');
+  },
+  'abono-credito'(f) {
+    const monto = montoDe(f.monto.value), fecha = f.fecha.value;
+    if (!(monto > 0)) return errorHoja('Escribe el monto del abono.');
+    if (!F.esFecha(fecha)) return errorHoja('Indica la fecha del abono.');
+    hacer('creditos.json', { tipo: 'abonoCredito', idCredito: hoja.id, abono: { fecha, monto } }, 'abono de ' + F.pesos(monto));
+    const id = hoja.id; abrirHoja('credito-ver', { id }); avisar('Abono registrado');
+  },
+  credito(f) {
+    const dec = (v) => { const t = String(v || '').trim().replace(/\s|%|\$/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'); return /^-?(\d+\.?\d*|\.\d+)$/.test(t) ? parseFloat(t) : NaN; };
+    const nombre = String(f.nombre.value || '').trim().slice(0, 40), tipo = f.tipo.value;
+    if (!nombre) return errorHoja('Escribe el nombre del crédito.');
+    const previo = hoja.id ? (vista('creditos.json').creditos || []).find((c) => c.id === hoja.id) : null;
+    const c = Object.assign({}, previo || { id: F.nuevoId('cr'), pagos: [], abonos: [], creado: Date.now() }, { nombre, tipo, moneda: tipo === 'hipotecario' ? 'UF' : 'CLP' });
+    if (tipo === 'abonos') {
+      const mi = montoDe(f.monto_inicial.value), pb = montoDe(f.pendiente_base.value);
+      if (!(mi > 0)) return errorHoja('Escribe el monto inicial de la deuda.');
+      if (pb == null || pb < 0) return errorHoja('Escribe cuánto estaba pendiente al ingresarla.');
+      Object.assign(c, { monto_inicial: mi, pendiente_base: pb, cuota: 0, plazo: 1, tasa: 0, tasa_tipo: 'mensual', ajuste: 0, pagadas_inicial: 0 });
+    } else {
+      const cuota = dec(f.cuota.value), plazo = parseInt(f.plazo.value, 10), pagadas = parseInt(f.pagadas_inicial.value || '0', 10), tasa = dec(f.tasa.value), ajuste = f.ajuste.value.trim() ? dec(f.ajuste.value) : 0;
+      if (!(cuota > 0)) return errorHoja('Escribe la cuota.');
+      if (!(plazo >= 1 && plazo <= 600)) return errorHoja('El plazo va de 1 a 600 cuotas.');
+      if (!(pagadas >= 0 && pagadas <= plazo)) return errorHoja('Las cuotas pagadas van de 0 al plazo.');
+      if (!(tasa >= 0)) return errorHoja('Escribe la tasa, por ejemplo 1,49.');
+      if (isNaN(ajuste)) return errorHoja('El ajuste debe ser un número.');
+      Object.assign(c, { cuota: tipo === 'hipotecario' ? cuota : Math.round(cuota), plazo, pagadas_inicial: pagadas, tasa, tasa_tipo: f.tasa_tipo.value, ajuste, monto_inicial: 0, pendiente_base: 0 });
+    }
+    hacer('creditos.json', { tipo: 'credito', credito: c }, (previo ? 'corrige el crédito ' : 'agrega el crédito ') + nombre);
+    cerrarHoja(); avisar(previo ? 'Crédito guardado' : 'Crédito agregado', nombre);
+  },
   'mes-nuevo'(f) {
     const titulo = String(f.titulo.value || '').trim().slice(0, 40);
     if (!titulo) return errorHoja('Escribe el título del mes nuevo.');
@@ -993,6 +1152,12 @@ document.addEventListener('submit', (ev) => {
 });
 // En la hoja de movimiento, cambiar de cuenta o de tipo cambia los campos (sin perder lo escrito)
 function alCambiar(ev) {
+  const fc = ev.target.closest('#hoja form[data-f="credito"]');
+  if (fc && ev.target.name === 'tipo' && ev.type === 'change') {
+    hoja.v = {}; ['nombre', 'cuota', 'plazo', 'pagadas_inicial', 'tasa', 'ajuste', 'monto_inicial', 'pendiente_base'].forEach((k) => { if (fc[k]) hoja.v[k] = fc[k].value; });
+    hoja.v.tipo = ev.target.value; if (fc.tasa_tipo) hoja.v.tasa_tipo = fc.tasa_tipo.value;
+    repintarHoja(); return;
+  }
   const f = ev.target.closest('#hoja form[data-f="mov"]');
   if (!f || !hoja) return;
   if (['cuenta', 'tipo'].includes(ev.target.name) && ev.type === 'change') { hoja.v = valoresMov(f); repintarHoja(); return; }
@@ -1004,18 +1169,21 @@ document.addEventListener('input', alCambiar);
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') cerrarHoja(); });
 
 /* ---------- Pintar ---------- */
-const PESTANAS = [['resumen', 'resumen', 'Resumen'], ['cuentas', 'cuentas', 'Cuentas'], ['pagos', 'pagos', 'Pagos'], ['mas', 'ajustes', 'Más']];
+const PESTANAS = [['resumen', 'resumen', 'Resumen'], ['cuentas', 'cuentas', 'Cuentas'], ['pagos', 'pagos', 'Pagos'], ['ajustes', 'ajustes', 'Ajustes']];
+const VISTAS = ['resumen', 'cuentas', 'pagos', 'ajustes', 'mesadas', 'creditos'];
 function cabecera() {
   const h = hoy();
-  const t = { resumen: [F.tituloMes(h.slice(0, 7)), 'Finanzas'], cuentas: ['FAN, Master, LiderBCI y Copec', 'Cuentas'], pagos: ['Pagos del mes', 'Pagos'], mas: ['Finanzas ' + F.VERSION, 'Más'] }[ui.tab];
+  const t = { resumen: [F.tituloMes(h.slice(0, 7)), 'Finanzas'], cuentas: ['FAN, Master, LiderBCI y Copec', 'Cuentas'], pagos: ['Pagos del mes', 'Pagos'], ajustes: ['Finanzas ' + F.VERSION, 'Ajustes'],
+    mesadas: ['<button class="c-volver" data-a="tab" data-t="resumen">' + ico('volver', 16) + 'Resumen</button>', 'Mesadas'], creditos: ['<button class="c-volver" data-a="tab" data-t="resumen">' + ico('volver', 16) + 'Resumen</button>', 'Mis créditos'] }[ui.tab];
   return `<div><span class="d-antetitulo">${t[0]}</span><h1>${t[1]}</h1></div><div class="d-acciones"><button class="d-boton-circular" data-a="ayuda" aria-label="Ayuda">${ico('ayuda', 20)}</button></div>`;
 }
 function render() {
-  if (!['resumen', 'cuentas', 'pagos', 'mas'].includes(ui.tab)) ui.tab = 'resumen';
+  if (!VISTAS.includes(ui.tab)) ui.tab = 'resumen';
   $('cabecera').innerHTML = cabecera();
-  $('vista').innerHTML = { resumen: vistaResumen, cuentas: vistaCuentas, pagos: vistaPagos, mas: vistaMas }[ui.tab]();
-  $('barraSup').textContent = { resumen: 'Finanzas', cuentas: NOMBRE[ui.cuenta], pagos: 'Pagos del mes', mas: 'Más' }[ui.tab];
-  $('pestanas').innerHTML = PESTANAS.map(([id, ic, t]) => `<button data-a="tab" data-t="${id}"${ui.tab === id ? ' aria-current="page"' : ''}>${ico(ic)}${t}</button>`).join('');
+  $('vista').innerHTML = { resumen: vistaResumen, cuentas: vistaCuentas, pagos: vistaPagos, ajustes: vistaAjustes, mesadas: vistaMesadas, creditos: vistaCreditos }[ui.tab]();
+  $('barraSup').textContent = { resumen: 'Finanzas', cuentas: NOMBRE[ui.cuenta], pagos: 'Pagos del mes', ajustes: 'Ajustes', mesadas: 'Mesadas', creditos: 'Mis créditos' }[ui.tab];
+  const activa = ui.tab === 'mesadas' || ui.tab === 'creditos' ? 'resumen' : ui.tab;
+  $('pestanas').innerHTML = PESTANAS.map(([id, ic, t]) => `<button data-a="tab" data-t="${id}"${activa === id ? ' aria-current="page"' : ''}>${ico(ic)}${t}</button>`).join('');
 }
 function aplicarPrefs() {
   const oscuro = prefs.tema === 'oscuro' || (prefs.tema !== 'claro' && matchMedia('(prefers-color-scheme: dark)').matches);
