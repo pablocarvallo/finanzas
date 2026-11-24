@@ -1004,7 +1004,7 @@ document.addEventListener('input', alCambiar);
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') cerrarHoja(); });
 
 /* ---------- Pintar ---------- */
-const PESTANAS = [['resumen', 'resumen', 'Resumen'], ['cuentas', 'cuentas', 'Cuentas'], ['pagos', 'pagos', 'Pagos'], ['mas', 'mas-h', 'Más']];
+const PESTANAS = [['resumen', 'resumen', 'Resumen'], ['cuentas', 'cuentas', 'Cuentas'], ['pagos', 'pagos', 'Pagos'], ['mas', 'ajustes', 'Más']];
 function cabecera() {
   const h = hoy();
   const t = { resumen: [F.tituloMes(h.slice(0, 7)), 'Finanzas'], cuentas: ['FAN, Master, LiderBCI y Copec', 'Cuentas'], pagos: ['Pagos del mes', 'Pagos'], mas: ['Finanzas ' + F.VERSION, 'Más'] }[ui.tab];

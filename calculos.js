@@ -4,7 +4,7 @@
 // Datos en pablocarvallo/datos: cuentas.json (punto de partida de cada cuenta), movimientos/AAAA-MM.json (un archivo
 // por mes; los avisos del banco y de Copec llegan solos) y pagos.json (pagos del mes).
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.0.1';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;
