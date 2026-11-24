@@ -1,0 +1,357 @@
+// Finanzas · cálculos y cambios de los datos de dinero. Sin pantalla: lo usan la app (index.html) y las pruebas
+// (node --test pruebas/*.test.js). Las reglas son las de las apps FAN, Master, LiderBCI, Copec y Pagos del mes, para
+// que los números coincidan durante el mes de convivencia.
+// Datos en pablocarvallo/datos: cuentas.json (punto de partida de cada cuenta), movimientos/AAAA-MM.json (un archivo
+// por mes; los avisos del banco y de Copec llegan solos) y pagos.json (pagos del mes).
+
+export const VERSION = '1.0.0';
+
+/* ---------- Fechas y formatos ---------- */
+const pad = (n) => (n < 10 ? '0' : '') + n;
+const utc = (k) => { const p = String(k).split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); };
+export function diaDe(d) { const x = new Date(d); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); }
+export function horaDe(d) { const x = new Date(d); return pad(x.getHours()) + ':' + pad(x.getMinutes()); }
+export function sumarDias(k, n) { const d = new Date(utc(k) + n * 86400000); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
+export function esFecha(k) { return /^\d{4}-\d{2}-\d{2}$/.test(String(k)) && sumarDias(k, 0) === k; }
+export function esHora(h) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(h)); }
+export function sumarMesesYM(ym, n) { const t = +ym.slice(0, 4) * 12 + (+ym.slice(5, 7) - 1) + n; return Math.floor(t / 12) + '-' + pad(t % 12 + 1); }
+export function mesesEntre(a, b) { return (+b.slice(0, 4) - +a.slice(0, 4)) * 12 + (+b.slice(5, 7) - +a.slice(5, 7)); }
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+export const nombreMes = (ym) => MESES[+ym.slice(5, 7) - 1];
+export const tituloMes = (ym) => nombreMes(ym).charAt(0).toUpperCase() + nombreMes(ym).slice(1) + ' ' + ym.slice(0, 4);
+export const fechaCorta = (k) => { const p = k.split('-'); return (+p[2]) + ' ' + MES[+p[1] - 1]; };
+export const nombreDia = (k) => DIAS[new Date(utc(k)).getUTCDay()];
+export const plural = (n, uno, varios) => (n === 1 ? uno : varios);
+export const pesos = (n) => (n < 0 ? '−' : '') + '$\u00a0' + String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+export const miles = (n) => (n < 0 ? '−' : '') + String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const copiar = (o) => JSON.parse(JSON.stringify(o));
+export function nuevoId(letra) { return letra + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+export const momento = (m) => m.fecha + 'T' + (m.hora || '00:00');
+
+/* ---------- Plantillas ---------- */
+export const PLANTILLAS = {
+  'cuentas.json': { cuentas: [
+    { id: 'fan', nombre: 'FAN', tipo: 'debito', banco: 'Banco de Chile', fuente: 'bancochile', saldo_inicial: null, terminacion: null },
+    { id: 'master', nombre: 'Master', tipo: 'credito', banco: 'Banco de Chile', fuente: 'bancochile', cupo: null, deuda_inicial: null, tarjetas: { 9908: 'T', 4526: 'A' } },
+    { id: 'liderbci', nombre: 'LiderBCI', tipo: 'credito', fuente: null, periodo_desde: null, puntos_movimientos: [],
+      puntos: { porcentaje_lider: 6, sin_puntos: ['Jumbo', 'Unimarc', 'Tottus', 'Santa Isabel', 'El 9', 'Don Salva'], porcentaje_otros: 1 } },
+    { id: 'copec', nombre: 'Copec Pay', tipo: 'prepago', fuente: 'copec', saldo_inicial: null },
+  ] },
+  'pagos.json': { titulo: '', secciones: [{ id: 'inicio', nombre: 'A inicios de mes', pagos: [] }, { id: 'mitad', nombre: 'A mitad de mes', pagos: [] }], historial: [] },
+};
+export function plantilla(archivo) { return /^movimientos\//.test(archivo) ? [] : copiar(PLANTILLAS[archivo]); }
+export function cuenta(cs, id) { return ((cs && cs.cuentas) || []).find((c) => c.id === id) || null; }
+export const ORDEN = ['fan', 'master', 'liderbci', 'copec'];
+
+/* ---------- Movimientos ---------- */
+// Tipos: salen compra, giro, cargo, cuota (cuotas por cobrar de Master), pago y aporte; entran abono, devolución y
+// depósito. Los avisos del banco y de Copec llegan como compra, giro o devolución.
+export const SALIDAS = ['compra', 'giro', 'cargo', 'cuota', 'pago', 'aporte'];
+export const ENTRADAS = ['abono', 'devolucion', 'deposito'];
+export const signo = (m) => (ENTRADAS.includes(m.tipo) ? 1 : -1);
+export const NOMBRE_TIPO = { compra: 'Compra', giro: 'Giro en cajero', cargo: 'Cargo', cuota: 'Cuotas por cobrar', pago: 'Pago', aporte: 'Aporte', abono: 'Abono', devolucion: 'Devolución', deposito: 'Depósito' };
+export const TIPOS_DE = {
+  fan: ['compra', 'giro', 'deposito'],
+  master: ['compra', 'cargo', 'abono', 'cuota'],
+  liderbci: ['compra', 'abono', 'devolucion'],
+  copec: ['compra', 'abono', 'devolucion'],
+};
+export const mesDe = (m) => m.fecha.slice(0, 7);
+export const archivoMes = (ym) => 'movimientos/' + ym + '.json';
+// Del más nuevo al más antiguo
+export function ordenar(lista) {
+  return lista.sort((a, b) => (momento(a) < momento(b) ? 1 : momento(a) > momento(b) ? -1 : String(a.id) < String(b.id) ? 1 : -1));
+}
+// La clave de un aviso sin signos ni acentos en el comercio (la misma de lector/ en pablocarvallo/datos)
+export function skel(key) {
+  const p = String(key).split('|');
+  return p[0] + '|' + (p[1] || '') + '|' + p.slice(2).join('').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/* ---------- Cuentas ---------- */
+// FAN y Copec: saldo = saldo ajustado + lo que entró − lo que salió desde ese momento (fecha y hora).
+// FAN sigue una sola cuenta: los avisos de otra terminación no cuentan.
+function cuentaVista(c, movs, hoy) {
+  const ym = hoy.slice(0, 7);
+  const propios = movs.filter((m) => m.cuenta === c.id && !(c.terminacion && m.terminacion && m.terminacion !== c.terminacion));
+  const p = c.saldo_inicial;
+  const desde = p && p.fecha ? (p.fecha.length === 10 ? p.fecha + 'T00:00' : p.fecha) : null;
+  let saldo = p ? p.monto : null;
+  const cuentan = desde ? propios.filter((m) => momento(m) >= desde) : [];
+  cuentan.forEach((m) => { saldo += signo(m) * m.monto; });
+  const delMes = propios.filter((m) => mesDe(m) === ym);
+  return {
+    id: c.id, tipo: c.tipo, definida: !!desde, saldo, desde, propios,
+    gastoMes: delMes.filter((m) => signo(m) < 0).reduce((s, m) => s + m.monto, 0),
+    entradasMes: delMes.filter((m) => signo(m) > 0).reduce((s, m) => s + m.monto, 0),
+  };
+}
+
+// Master: utilizado = saldo de partida + compras, cargos y cuotas por cobrar − abonos, desde el día «desde».
+// Las compras en cuotas ocupan todo su monto en el cupo hasta que se pagan; cada cuota se cobra en la facturación de
+// su mes, una por mes desde «prox» (la facturación cierra cerca del día 22).
+export const CIERRE = 22;
+export function proxDe(fecha) { const ym = fecha.slice(0, 7); return +fecha.slice(8, 10) <= CIERRE ? ym : sumarMesesYM(ym, 1); }
+export const esCuotas = (m) => m.tipo === 'cuota' || (m.tipo === 'compra' && (m.cuotas || 1) > 1);
+export function estadoCuotas(m, hoy) {
+  const n = Math.max(1, m.cuotas || 1), prox = m.prox || proxDe(m.fecha), valor = Math.floor(m.monto / n);
+  const hechas = Math.max(0, Math.min(n, mesesEntre(prox, proxDe(hoy))));
+  const cobrado = hechas >= n ? m.monto : hechas * valor;
+  return { n, hechas, pendientes: n - hechas, valor, cobrado, pendiente: m.monto - cobrado,
+    siguiente: hechas < n ? sumarMesesYM(prox, hechas) : '', ultima: sumarMesesYM(prox, n - 1),
+    valorSiguiente: hechas < n ? (hechas + 1 === n ? m.monto - valor * (n - 1) : valor) : 0 };
+}
+function masterVista(c, movs, hoy) {
+  const ym = hoy.slice(0, 7);
+  const propios = movs.filter((m) => m.cuenta === 'master');
+  const p = c.deuda_inicial, desde = p && p.fecha ? p.fecha.slice(0, 10) : null;
+  let utilizado = p ? p.monto : null;
+  const cuentan = desde ? propios.filter((m) => m.fecha >= desde) : [];
+  cuentan.forEach((m) => { utilizado += signo(m) < 0 ? m.monto : -m.monto; });
+  const cuotas = cuentan.filter(esCuotas).map((m) => ({ m, e: estadoCuotas(m, hoy) }));
+  const activas = cuotas.filter((x) => x.e.pendientes > 0);
+  const delMes = propios.filter((m) => mesDe(m) === ym);
+  const sal = delMes.filter((m) => signo(m) < 0);
+  return {
+    id: 'master', tipo: 'credito', definida: !!desde, desde, utilizado, cupo: c.cupo || null,
+    disponible: c.cupo != null && utilizado != null ? c.cupo - utilizado : null, propios,
+    cuotas: activas, cuotasPendiente: activas.reduce((s, x) => s + x.e.pendiente, 0),
+    gastoMes: sal.reduce((s, m) => s + m.monto, 0),
+    titularMes: sal.filter((m) => m.tipo === 'compra' && m.titular !== 'Adicional').reduce((s, m) => s + m.monto, 0),
+    adicionalMes: sal.filter((m) => m.tipo === 'compra' && m.titular === 'Adicional').reduce((s, m) => s + m.monto, 0),
+    cargosMes: sal.filter((m) => m.tipo !== 'compra').reduce((s, m) => s + m.monto, 0),
+    entradasMes: delMes.filter((m) => signo(m) > 0).reduce((s, m) => s + m.monto, 0),
+  };
+}
+
+// LiderBCI: total del periodo = compras − abonos y devoluciones desde el inicio del periodo. Puntos: 6 % en Lider,
+// 0 % en los supermercados de la lista y 1 % en el resto, sin decimales; la devolución resta los puntos de su compra.
+// Al cerrar el periodo, sus puntos pasan a «puntos_movimientos» y el periodo siguiente parte de cero.
+const SIN_PUNTOS = [/(^|[^a-z0-9])jumbo([^a-z0-9]|$)/, /(^|[^a-z0-9])unimarc([^a-z0-9]|$)/, /(^|[^a-z0-9])tottus([^a-z0-9]|$)/,
+  /(^|[^a-z0-9])santa\s*isabel([^a-z0-9]|$)/, /(^|[^a-z0-9])el\s*9([^0-9]|$)/, /(^|[^a-z0-9])don\s*salva([^a-z0-9]|$)/];
+const plano = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+export const esLider = (comercio) => /(^|[^a-z0-9])lider([^a-z0-9]|$)/.test(plano(comercio));
+export function tasaPuntos(comercio) { return esLider(comercio) ? 6 : SIN_PUNTOS.some((r) => r.test(plano(comercio))) ? 0 : 1; }
+export function puntosDe(m) {
+  const p = Math.floor(m.monto * tasaPuntos(m.comercio) / 100);
+  return m.tipo === 'compra' ? p : m.tipo === 'devolucion' ? -p : 0;
+}
+function liderVista(c, movs, hoy) {
+  const ym = hoy.slice(0, 7);
+  const propios = movs.filter((m) => m.cuenta === 'liderbci');
+  const desde = c.periodo_desde || null;
+  const periodo = desde ? propios.filter((m) => m.fecha >= desde) : propios;
+  const compras = periodo.filter((m) => signo(m) < 0).reduce((s, m) => s + m.monto, 0);
+  const abonos = periodo.filter((m) => signo(m) > 0).reduce((s, m) => s + m.monto, 0);
+  const puntosPeriodo = periodo.reduce((s, m) => s + puntosDe(m), 0);
+  const puntos = puntosPeriodo + (c.puntos_movimientos || []).reduce((s, x) => s + x.pts, 0);
+  const delMes = propios.filter((m) => mesDe(m) === ym);
+  return {
+    id: 'liderbci', tipo: 'credito', definida: true, desde, propios, periodo, compras, abonos, total: compras - abonos,
+    nCompras: periodo.filter((m) => m.tipo === 'compra').length, puntosPeriodo, puntos,
+    gastoMes: delMes.filter((m) => signo(m) < 0).reduce((s, m) => s + m.monto, 0),
+    entradasMes: delMes.filter((m) => signo(m) > 0).reduce((s, m) => s + m.monto, 0),
+  };
+}
+
+export function estadoCuentas(cs, movs, hoy) {
+  const out = {};
+  ORDEN.forEach((id) => {
+    const c = cuenta(cs, id) || cuenta(PLANTILLAS['cuentas.json'], id);
+    out[id] = id === 'master' ? masterVista(c, movs, hoy) : id === 'liderbci' ? liderVista(c, movs, hoy) : cuentaVista(c, movs, hoy);
+    out[id].nombre = c.nombre;
+  });
+  return out;
+}
+// Desde qué mes hay que leer movimientos para calcular las cuentas
+export function mesInicial(cs, hoy) {
+  const fechas = [hoy];
+  ORDEN.forEach((id) => {
+    const c = cuenta(cs, id);
+    if (!c) return;
+    const f = (c.saldo_inicial && c.saldo_inicial.fecha) || (c.deuda_inicial && c.deuda_inicial.fecha) || c.periodo_desde;
+    if (f) fechas.push(String(f).slice(0, 10));
+  });
+  return fechas.sort()[0].slice(0, 7);
+}
+
+/* ---------- Pagos del mes ---------- */
+export function estadoPagos(p) {
+  const todos = (p.secciones || []).flatMap((s) => (s.pagos || []).map((x) => Object.assign({ seccion: s.nombre }, x)));
+  const hechos = todos.filter((x) => x.hecho);
+  return { total: todos.length, hechos: hechos.length, pendientes: todos.filter((x) => !x.hecho) };
+}
+
+/* ---------- Avisos ---------- */
+export function avisos(E, P, hoy) {
+  const out = [];
+  ['fan', 'copec'].forEach((id) => { if (E[id].definida && E[id].saldo < 0) out.push({ tono: 'neg', peso: 0, ir: id, texto: 'El saldo de ' + E[id].nombre + ' está en negativo' }); });
+  const m = E.master;
+  if (m.disponible != null && m.cupo && m.disponible < m.cupo * 0.1) out.push({ tono: m.disponible < 0 ? 'neg' : 'aviso', peso: 1, ir: 'master', texto: 'A Master le queda poco cupo: ' + pesos(m.disponible) });
+  ORDEN.forEach((id) => { if (id !== 'liderbci' && !E[id].definida) out.push({ tono: 'info', peso: 8, ir: id, texto: 'Falta el punto de partida de ' + E[id].nombre + ': trae su respaldo o ajusta el saldo' }); });
+  const ym = hoy.slice(0, 7), titulo = tituloMes(ym);
+  if (P.titulo && P.titulo !== titulo && P.total) out.push({ tono: 'aviso', peso: 3, ir: 'pagos', texto: 'Empieza ' + titulo + ' en Pagos del mes' });
+  else if (P.pendientes && P.pendientes.length) {
+    const dia = +hoy.slice(8, 10);
+    const urgentes = P.pendientes.filter((x) => x.seccion === 'A inicios de mes' ? dia >= 5 : dia >= 20);
+    if (urgentes.length) out.push({ tono: 'aviso', peso: 4, ir: 'pagos', texto: urgentes.length === 1 ? 'Falta pagar: ' + urgentes[0].texto : 'Faltan ' + urgentes.length + ' pagos del mes' });
+  }
+  return out.sort((a, b) => a.peso - b.peso);
+}
+
+/* ---------- Cambios ---------- */
+// Cada cambio es { id, tipo, …datos } y se aplica sobre el contenido de un archivo (copia). Si el guardado choca con
+// el de otro dispositivo o con la tarea que lee los avisos, la app vuelve a leer el archivo y aplica de nuevo los
+// cambios pendientes. Los de movimientos se reconocen por el id del movimiento; los demás guardan sus ids recientes
+// en «ultimos_cambios».
+const MAX_IDS = 40;
+export function aplicar(archivo, contenido, cambio) {
+  const d = copiar(contenido == null ? plantilla(archivo) : contenido);
+  const f = CAMBIOS[cambio.tipo];
+  if (!f) throw new Error('Cambio desconocido: ' + cambio.tipo);
+  if (Array.isArray(d)) { f(d, cambio); return ordenar(d); }
+  d.ultimos_cambios = Array.isArray(d.ultimos_cambios) ? d.ultimos_cambios : [];
+  if (cambio.id && d.ultimos_cambios.includes(cambio.id)) return d;
+  f(d, cambio);
+  if (cambio.id) d.ultimos_cambios = d.ultimos_cambios.concat(cambio.id).slice(-MAX_IDS);
+  return d;
+}
+function cuentaDe(d, id) {
+  d.cuentas = Array.isArray(d.cuentas) ? d.cuentas : [];
+  let c = d.cuentas.find((x) => x.id === id);
+  if (!c) { c = copiar(cuenta(PLANTILLAS['cuentas.json'], id)); d.cuentas.push(c); }
+  return c;
+}
+function seccionDe(d, id) { return (d.secciones || []).find((s) => s.id === id); }
+const CAMBIOS = {
+  // movimientos/AAAA-MM.json
+  movimiento(lista, { mov }) { const i = lista.findIndex((x) => x.id === mov.id); if (i >= 0) lista[i] = mov; else lista.push(mov); },
+  borrarMovimiento(lista, { idMov }) { const i = lista.findIndex((x) => x.id === idMov); if (i >= 0) lista.splice(i, 1); },
+  // Trae movimientos de un respaldo: agrega los que faltan; los que ya llegaron por aviso se quedan como están
+  importarMovimientos(lista, { movs }) { movs.forEach((m) => { if (!lista.some((x) => x.id === m.id)) lista.push(m); }); },
+  // cuentas.json
+  partida(d, { cuenta: id, campo, valor }) { cuentaDe(d, id)[campo] = valor; },
+  ajustesCuenta(d, { cuenta: id, valores }) { Object.assign(cuentaDe(d, id), valores); },
+  puntos(d, { mov }) { const c = cuentaDe(d, 'liderbci'); c.puntos_movimientos = (c.puntos_movimientos || []).filter((x) => x.id !== mov.id).concat(mov); },
+  borrarPuntos(d, { idMov }) { const c = cuentaDe(d, 'liderbci'); c.puntos_movimientos = (c.puntos_movimientos || []).filter((x) => x.id !== idMov); },
+  // Cierra el periodo de LiderBCI: sus puntos quedan guardados y el periodo siguiente parte desde «desde»
+  cerrarPeriodo(d, { desde, pts, fecha, idMov }) {
+    const c = cuentaDe(d, 'liderbci');
+    if (pts) c.puntos_movimientos = (c.puntos_movimientos || []).concat({ id: idMov, tipo: 'cierre', fecha, pts, nota: 'Periodo cerrado' });
+    c.periodo_desde = desde;
+  },
+  // pagos.json
+  pagoHecho(d, { seccion, idPago, hecho, fecha }) {
+    const p = (seccionDe(d, seccion) || { pagos: [] }).pagos.find((x) => x.id === idPago);
+    if (!p) return;
+    p.hecho = !!hecho;
+    if (hecho) p.fecha = fecha; else delete p.fecha;
+  },
+  pagoGuardar(d, { seccion, pago }) {
+    (d.secciones || []).forEach((s) => { s.pagos = (s.pagos || []).filter((x) => x.id !== pago.id || s.id === seccion); });
+    const s = seccionDe(d, seccion);
+    if (!s) return;
+    const i = s.pagos.findIndex((x) => x.id === pago.id);
+    if (i >= 0) s.pagos[i] = Object.assign({}, s.pagos[i], pago); else s.pagos.push(pago);
+  },
+  pagoBorrar(d, { idPago }) { (d.secciones || []).forEach((s) => { s.pagos = (s.pagos || []).filter((x) => x.id !== idPago); }); },
+  // Mes nuevo: el mes que termina queda en el historial; se desmarcan los pagos y se quitan los de una sola vez
+  mesNuevo(d, { titulo, fecha }) {
+    const reg = { titulo: d.titulo, cerrado: fecha, pagos: [] };
+    (d.secciones || []).forEach((s) => {
+      s.pagos.forEach((x) => reg.pagos.push({ t: x.texto, d: !!x.hecho, s: s.nombre }));
+      s.pagos = s.pagos.filter((x) => !x.una_vez);
+      s.pagos.forEach((x) => { x.hecho = false; delete x.fecha; });
+    });
+    if (reg.pagos.length) d.historial = [reg].concat(d.historial || []).slice(0, 24);
+    d.titulo = titulo;
+  },
+  reemplazarPagos(d, { estado }) { Object.keys(d).forEach((k) => { if (k !== 'ultimos_cambios') delete d[k]; }); Object.assign(d, estado); },
+};
+
+/* ---------- Respaldos de las apps antiguas ---------- */
+const limpiar = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n || 60);
+const idDe = (prefijo, x) => prefijo + String(x || nuevoId('r')).replace(/[^\w-]/g, '');
+function porMes(movs) {
+  const g = {};
+  movs.forEach((m) => { (g[mesDe(m)] = g[mesDe(m)] || []).push(m); });
+  return Object.keys(g).sort().map((ym) => ({ archivo: archivoMes(ym), cambio: { tipo: 'importarMovimientos', movs: g[ym] } }));
+}
+const momentoValido = (at) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(at || '')) && esFecha(String(at).slice(0, 10));
+// Devuelve { app, nombre, resumen, cambios: [{ archivo, cambio }] } o { error }
+export function leerRespaldo(texto) {
+  let d;
+  const t = String(texto || '').trim();
+  if (/^MC1:/.test(t)) return { error: 'Este es el respaldo de Mis créditos: Finanzas lo traerá en la próxima versión.' };
+  try { d = JSON.parse(t); } catch (e) { return { error: 'El texto no es un respaldo. Cópialo de nuevo desde la app antigua.' }; }
+
+  if (d && (d.app === 'fan' || d.app === 'copec') && Array.isArray(d.movimientos)) {
+    const app = d.app, c = d.cuenta || {};
+    const movs = d.movimientos.filter((p) => p && esFecha(p.date) && +p.amount > 0).map((p) => {
+      const aviso = p.src === 'mail' && p.key;
+      const tipo = app === 'fan' ? (p.type === 'd' ? 'deposito' : /^giro en cajero$/i.test(p.desc || '') ? 'giro' : 'compra')
+        : p.type === 'd' ? (aviso && /^AN/.test(p.key) ? 'devolucion' : 'abono') : 'compra';
+      const m = { origen: aviso ? 'aviso' : 'manual', cuenta: app, fecha: p.date, hora: esHora(p.time) ? p.time : '', comercio: limpiar(p.desc) || (tipo === 'deposito' ? 'Depósito' : 'Compra'),
+        monto: Math.round(+p.amount), tipo, id: aviso ? app + '|' + skel(p.key) : idDe(app + '-', p.id) };
+      if (app === 'fan' && /^\d{4}$/.test(String(p.acct || ''))) m.terminacion = String(p.acct);
+      if (app === 'copec' && p.fmt) m.formato = p.fmt;
+      return m;
+    });
+    const cambios = porMes(movs);
+    const partida = momentoValido(c.at) ? { monto: Math.round(+c.amount) || 0, fecha: c.at } : null;
+    const valores = { saldo_inicial: partida };
+    if (app === 'fan' && /^\d{4}$/.test(String(c.acct || ''))) valores.terminacion = String(c.acct);
+    cambios.unshift({ archivo: 'cuentas.json', cambio: { tipo: 'ajustesCuenta', cuenta: app, valores } });
+    const nombre = app === 'fan' ? 'FAN' : 'Copec';
+    return { app, nombre, cambios, resumen: movs.length + ' ' + plural(movs.length, 'movimiento', 'movimientos') + (partida ? ' y el saldo de ' + pesos(partida.monto) + ' del ' + fechaCorta(partida.fecha.slice(0, 10)) : ', sin saldo definido') };
+  }
+
+  if (d && d.app === 'master' && Array.isArray(d.movimientos)) {
+    const c = d.tarjeta || {};
+    const TIPO = { c: 'compra', g: 'cargo', a: 'abono', q: 'cuota' };
+    const movs = d.movimientos.filter((p) => p && esFecha(p.date) && +p.amount > 0).map((p) => {
+      const tipo = TIPO[p.type] || 'compra', aviso = p.src === 'mail' && p.key && tipo === 'compra';
+      const m = { origen: aviso ? 'aviso' : 'manual', cuenta: 'master', fecha: p.date, hora: esHora(p.time) ? p.time : '', comercio: limpiar(p.desc) || NOMBRE_TIPO[tipo],
+        monto: Math.round(+p.amount), tipo, id: aviso ? 'master|' + skel(p.key) : idDe('master-', p.id) };
+      if (tipo === 'compra' || tipo === 'cuota') { m.titular = p.who === 'A' ? 'Adicional' : 'Titular'; m.cuotas = Math.max(1, Math.round(+p.n) || 1); }
+      if ((tipo === 'cuota' || m.cuotas > 1) && /^\d{4}-\d{2}$/.test(String(p.prox || ''))) m.prox = p.prox;
+      if (/^\d{4}$/.test(String(p.card || ''))) m.terminacion = String(p.card);
+      return m;
+    });
+    const cambios = porMes(movs);
+    const partida = esFecha(c.desde) ? { monto: Math.round(+c.saldo) || 0, fecha: c.desde } : null;
+    cambios.unshift({ archivo: 'cuentas.json', cambio: { tipo: 'ajustesCuenta', cuenta: 'master', valores: { deuda_inicial: partida, cupo: +c.limit > 0 ? Math.round(+c.limit) : null } } });
+    return { app: 'master', nombre: 'Master', cambios, resumen: movs.length + ' ' + plural(movs.length, 'movimiento', 'movimientos') + (partida ? ', saldo de partida ' + pesos(partida.monto) + ' desde el ' + fechaCorta(partida.fecha) : '') + (+c.limit > 0 ? ' y cupo ' + pesos(c.limit) : '') };
+  }
+
+  if (d && d.v === 2 && Array.isArray(d.compras) && Array.isArray(d.puntos)) {
+    const movs = d.compras.filter((p) => p && esFecha(p.date) && +p.amount > 0).map((p) => ({
+      origen: 'manual', cuenta: 'liderbci', fecha: p.date, hora: '', comercio: limpiar(p.store) || (p.kind ? 'Abono' : 'Compra'),
+      monto: Math.round(+p.amount), tipo: p.kind === 'devolucion' ? 'devolucion' : p.kind ? 'abono' : 'compra', id: idDe('liderbci-', p.id),
+      ...(p.kind === 'otro' ? { nota: 'Otro abono' } : {}),
+    }));
+    const pts = d.puntos.filter((m) => m && esFecha(m.date) && +m.pts).map((m) => ({ id: idDe('p-', m.id), tipo: ['cierre', 'canje', 'ajuste'].includes(m.type) ? m.type : 'ajuste', fecha: m.date, pts: Math.round(+m.pts), nota: limpiar(m.note, 120) }));
+    const desde = movs.length ? movs.map((m) => m.fecha).sort()[0] : null;
+    const cambios = porMes(movs);
+    cambios.unshift({ archivo: 'cuentas.json', cambio: { tipo: 'ajustesCuenta', cuenta: 'liderbci', valores: { periodo_desde: desde, puntos_movimientos: pts } } });
+    return { app: 'liderbci', nombre: 'LiderBCI', cambios, resumen: movs.length + ' ' + plural(movs.length, 'registro', 'registros') + ' del periodo y ' + pts.length + ' ' + plural(pts.length, 'movimiento', 'movimientos') + ' de puntos' };
+  }
+
+  if (d && Array.isArray(d.sections) && Array.isArray(d.history)) {
+    const estado = {
+      titulo: limpiar(d.title, 40),
+      secciones: d.sections.map((s, i) => ({ id: idDe('s', s.id || i), nombre: limpiar(s.name, 40) || 'Pagos',
+        pagos: (s.items || []).filter((x) => x && limpiar(x.text)).map((x) => Object.assign({ id: idDe('p', x.id), texto: limpiar(x.text, 80), hecho: !!x.done },
+          x.done && esFecha(x.at) ? { fecha: x.at } : {}, x.once ? { una_vez: true } : {})) })),
+      historial: d.history.map((h) => ({ titulo: limpiar(h.title, 40), cerrado: esFecha(h.closed) ? h.closed : '', pagos: (h.items || []).map((x) => ({ t: limpiar(x.t, 80), d: !!x.d, s: limpiar(x.s, 40) })) })),
+    };
+    const n = estado.secciones.reduce((s, x) => s + x.pagos.length, 0);
+    return { app: 'pagos', nombre: 'Pagos del mes', cambios: [{ archivo: 'pagos.json', cambio: { tipo: 'reemplazarPagos', estado } }], resumen: n + ' ' + plural(n, 'pago', 'pagos') + ' en ' + estado.secciones.length + ' secciones' };
+  }
+
+  if (Array.isArray(d) && d.length && d[0] && ('who' in d[0] || 'hija' in d[0] || 'p' in d[0])) return { error: 'Este es el respaldo de Mesadas: Finanzas lo traerá en la próxima versión.' };
+  if (d && Array.isArray(d.cases)) return { error: 'Este es el respaldo de Maletas: se trae en la app Casa.' };
+  return { error: 'No reconozco este respaldo. Sirven los de FAN, Master, LiderBCI, Copec y Pagos del mes.' };
+}
