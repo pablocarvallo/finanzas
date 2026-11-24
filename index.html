@@ -621,8 +621,7 @@ function vistaResumen() {
   const T = D.CR.total;
   html += seccion('Mesadas y créditos') + '<ul class="d-lista d-vidrio">' +
     fila({ icono: 'alcancia', titulo: 'Mesadas', sub: D.M.personas.map((p) => p + ' ' + F.pesos(D.M.por[p].mes)).join(' · ') + ' en ' + F.nombreMes(ym), valor: F.pesos(D.M.mes), a: 'tab', attrs: 'data-t="mesadas"', chev: true }) +
-    fila({ icono: 'moneda', titulo: 'Mis créditos', sub: T.n ? (T.activos ? 'Cuotas del mes ' + F.pesos(T.cuotasMes) + (T.termino ? ' · término ' + ymTxt(T.termino) : '') : 'Consumo pagado') : 'Sin créditos ingresados', valor: T.n ? F.pesos(T.saldo) : '', a: 'tab', attrs: 'data-t="creditos"', chev: true }) +
-    fila({ icono: 'escudo', titulo: 'Gastos médicos', sub: 'Sigue en su app mientras llega a Finanzas', a: 'abrir', attrs: 'data-url="https://pablocarvallo.github.io/cigna/"', extraHtml: `<span class="c-chev">${ico('enlace', 18)}</span>` }) + '</ul>';
+    fila({ icono: 'moneda', titulo: 'Mis créditos', sub: T.n ? (T.activos ? 'Cuotas del mes ' + F.pesos(T.cuotasMes) + (T.termino ? ' · término ' + ymTxt(T.termino) : '') : 'Consumo pagado') : 'Sin créditos ingresados', valor: T.n ? F.pesos(T.saldo) : '', a: 'tab', attrs: 'data-t="creditos"', chev: true }) + '</ul>';
   const ult = D.movs.slice().sort((a, b) => (F.momento(a) < F.momento(b) ? 1 : -1)).slice(0, 6);
   html += seccion('Últimos movimientos');
   html += ult.length ? '<ul class="d-lista d-vidrio">' + ult.map((m) => filaMov(m, { conCuenta: true, h })).join('') + '</ul>' : '<p class="c-texto">Todavía no hay movimientos. Llegan solos con los avisos del banco y de Copec, o tráelos desde Ajustes → Traer datos.</p>';

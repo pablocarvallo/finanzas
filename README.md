@@ -13,8 +13,9 @@ Mis créditos.
 - **Pagos**: pagos del mes en dos secciones, mes nuevo e historial.
 - **Mesadas**: aportes a Piti y Emi con su asunto, totales por hija y del mes, historial.
 - **Mis créditos**: consumo, hipotecario (UF) y deudas con abonos; pagos de cuota, abonos, saldo y término estimado.
-- **Ajustes**: conexión, traer datos de las apps antiguas, apariencia y respaldo. Gastos médicos sigue en su app (enlace
-  en el Resumen).
+- **Ajustes**: conexión, traer datos de las apps antiguas, apariencia y respaldo.
+
+Gastos médicos queda fuera de Finanzas: es una app independiente (pablocarvallo/cigna), por decisión del 24 nov 2026.
 
 ## Datos
 
@@ -54,4 +55,3 @@ de `calculos.js`; actualizarla al cambiar las reglas.
 - Diseño: `python3 ../casa/herramientas/aplicar-diseno27.py index.html` copia `casa/diseno27/` entre las marcas `D27`.
 - Pruebas: `TZ=America/Santiago node --test pruebas/*.test.js`.
 - Al publicar, subir `VERSION` en `calculos.js` (y `CACHE` en `sw.js`): la app se recarga sola al abrirse.
-- Próxima versión: Gastos médicos.
