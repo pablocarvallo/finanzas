@@ -231,6 +231,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .d-heroe .c-cifra-chica { font-size: 34px; line-height: 40px; }
 .d-heroe .c-cifra-texto { font: 700 26px/32px var(--font-sans); letter-spacing: -0.2px; margin-top: 6px; }
 .d-heroe .d-pie > div { min-width: 0; }
+.d-heroe .c-pie-boton { position: relative; z-index: 1; min-width: 0; appearance: none; border: 0; background: none; padding: 0; margin: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.d-heroe .c-pie-boton b { display: flex; align-items: center; gap: 2px; }
+.d-heroe .c-pie-boton svg { opacity: .8; }
+.d-heroe .c-pie-boton:active { opacity: .6; }
+.d-heroe .c-pie-boton:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 6px; }
 
 /* Puntos de estado */
 .c-punto { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--acento); }
@@ -566,7 +571,7 @@ function fila({ icono, titulo, sub, valor, a, attrs = '', punto, chev, extraHtml
 function heroe(etiqueta, cifra, pie, avance, chica) {
   return `<section class="d-heroe"><span class="d-etiqueta">${etiqueta}</span><span class="d-cifra-grande${chica === 'texto' ? ' c-cifra-texto' : chica ? ' c-cifra-chica' : ''}">${cifra}</span>` +
     (avance != null ? `<div class="d-barra-avance"><i style="width:${Math.round(Math.max(0, Math.min(1, avance)) * 100)}%"></i></div>` : '') +
-    (pie && pie.length ? `<div class="d-pie">${pie.map(([t, b]) => `<div>${t}<b>${b}</b></div>`).join('')}</div>` : '') + '</section>';
+    (pie && pie.length ? `<div class="d-pie">${pie.map(([t, b, acc]) => acc ? `<button class="c-pie-boton" ${acc}>${t}<b>${b}${ico('chev', 15, 2.6)}</b></button>` : `<div>${t}<b>${b}</b></div>`).join('')}</div>` : '') + '</section>';
 }
 const seccion = (t, enlace) => `<div class="d-seccion"><h2>${t}</h2>${enlace || ''}</div>`;
 function filaMov(m, opts = {}) {
@@ -645,24 +650,15 @@ function vistaCuentas() {
     html += e.definida
       ? heroe('Disponible', e.disponible != null ? F.pesos(e.disponible) : F.pesos(-e.utilizado), [['Utilizado', F.pesos(e.utilizado)], ['Cupo', e.cupo ? F.pesos(e.cupo) : 'Sin dato'], ['En cuotas', F.pesos(e.cuotasPendiente)]], e.cupo ? e.utilizado / e.cupo : null)
       : heroe('Disponible', 'Sin definir', [['Cómo empezar', 'Trae su respaldo o ajusta el utilizado']], null, true);
-    html += `<p class="c-texto">Compras de ${F.nombreMes(ym)}: titular <b>${F.pesos(e.titularMes)}</b> · adicional <b>${F.pesos(e.adicionalMes)}</b>${e.cargosMes ? ' · cargos <b>' + F.pesos(e.cargosMes) + '</b>' : ''}${e.entradasMes ? ' · abonos <b>' + F.pesos(e.entradasMes) + '</b>' : ''}.</p>`;
     acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="master">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="ajustar">Ajustar</button>`);
   } else {
-    html += heroe('Por pagar en el periodo', F.pesos(e.total), [['Compras', F.pesos(e.compras)], ['Abonos', F.pesos(e.abonos)], ['Puntos', F.miles(e.puntos)]]);
-    html += `<p class="c-texto">${e.desde ? 'Periodo desde el ' + F.fechaCorta(e.desde) + ' · ' : ''}${e.nCompras} ${F.plural(e.nCompras, 'compra', 'compras')}, ${F.miles(e.puntosPeriodo)} puntos en el periodo.</p>`;
+    html += heroe('Por pagar en el periodo', F.pesos(e.total), [['Compras', F.pesos(e.compras)], ['Abonos', F.pesos(e.abonos)], ['Puntos', F.miles(e.puntos), 'data-a="hoja" data-h="detalle-puntos" aria-label="Puntos: ' + F.miles(e.puntos) + '. Ver el detalle"']]);
     acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="liderbci">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="cerrar-periodo">Cerrar periodo</button>`);
   }
   html += `<div class="c-acciones">${acciones.join('')}</div>`;
   if (id === 'master' && e.cuotas.length) {
     html += seccion('Cuotas por cobrar') + '<ul class="d-lista d-vidrio">' + e.cuotas.map(({ m, e: q }) =>
       fila({ icono: 'tarjeta', titulo: esc(m.comercio), sub: 'Cuota ' + (q.hechas + 1) + ' de ' + q.n + ' en ' + ymTxt(q.siguiente) + ' · última en ' + ymTxt(q.ultima), valor: F.pesos(q.valorSiguiente) + `<small>quedan ${F.pesos(q.pendiente)}</small>`, a: 'hoja', attrs: `data-h="mov" data-id="${esc(m.id)}"` })).join('') + '</ul>';
-  }
-  if (id === 'liderbci') {
-    const c = F.cuenta(D.cuentas, 'liderbci') || {};
-    const pm = (c.puntos_movimientos || []).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1)).slice(0, 6);
-    html += seccion('Puntos', '<a href="#" data-a="hoja" data-h="puntos">Canje o ajuste</a>') + '<ul class="d-lista d-vidrio">' +
-      fila({ icono: 'estrella', titulo: 'Saldo de puntos', sub: '6 % en Lider · 1 % en otros comercios', valor: F.miles(e.puntos) }) +
-      pm.map((x) => fila({ titulo: cap1(x.tipo === 'cierre' ? 'Periodo cerrado' : x.tipo), sub: F.fechaCorta(x.fecha) + (x.nota && x.tipo !== 'cierre' ? ' · ' + esc(x.nota) : ''), valor: (x.pts > 0 ? '+' : '−') + F.miles(Math.abs(x.pts)), a: 'hoja', attrs: `data-h="puntos" data-id="${esc(x.id)}"` })).join('') + '</ul>';
   }
   // Movimientos por mes, del más nuevo al más antiguo
   const meses = mesesNecesarios().slice().reverse();
@@ -812,6 +808,15 @@ function contenidoHoja() {
     return `<form data-f="cerrar-periodo"><h2>Cerrar periodo de LiderBCI</h2><p>Al pagar la tarjeta: los <b>${F.miles(e.puntosPeriodo)} puntos</b> del periodo quedan guardados y el total parte de cero. Las compras desde la fecha que elijas quedan en el periodo nuevo; las anteriores siguen en el historial.</p>` +
       campo('Inicio del periodo nuevo', `<input type="date" name="desde" value="${h}" required>`) + pie('Cerrar periodo') + '</form>';
   }
+  if (t === 'detalle-puntos') {
+    const e = D.E.liderbci, c = F.cuenta(D.cuentas, 'liderbci') || {};
+    const pm = (c.puntos_movimientos || []).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+    return '<h2>Puntos LiderBCI</h2><p>6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto.</p><ul class="d-lista d-vidrio">' +
+      fila({ icono: 'estrella', titulo: 'Saldo de puntos', valor: F.miles(e.puntos) }) +
+      fila({ icono: 'bolsa', titulo: 'En este periodo', sub: (e.desde ? 'Desde el ' + F.fechaCorta(e.desde) + ' · ' : '') + 'se guardan al cerrar el periodo', valor: F.miles(e.puntosPeriodo) }) + '</ul>' +
+      (pm.length ? '<h3>Movimientos</h3><ul class="d-lista d-vidrio">' + pm.map((x) => fila({ titulo: cap1(x.tipo === 'cierre' ? 'Periodo cerrado' : x.tipo), sub: F.fechaCorta(x.fecha) + (x.nota && x.tipo !== 'cierre' ? ' · ' + esc(x.nota) : ''), valor: (x.pts > 0 ? '+' : '−') + F.miles(Math.abs(x.pts)), a: 'hoja', attrs: `data-h="puntos" data-id="${esc(x.id)}" data-volver="detalle-puntos"`, chev: true })).join('') + '</ul>' : '') +
+      '<div class="c-pila"><button class="d-boton" data-a="hoja" data-h="puntos" data-volver="detalle-puntos">Canje o ajuste</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
+  }
   if (t === 'puntos') {
     const c = F.cuenta(D.cuentas, 'liderbci') || {}, x = hoja.id ? (c.puntos_movimientos || []).find((p) => p.id === hoja.id) : null;
     return `<form data-f="puntos"><h2>${x ? 'Movimiento de puntos' : 'Canje o ajuste de puntos'}</h2>` +
@@ -894,7 +899,7 @@ function contenidoHoja() {
   if (t === 'ayuda') return '<h2>Cómo funciona Finanzas</h2>' +
     '<h3>FAN y Copec</h3><p>Saldo = el saldo que ajustaste, más lo que entró y menos lo que salió desde ese momento. Las compras y giros de FAN y los cargos de Copec llegan solos con los avisos; los depósitos y abonos se anotan con +. FAN sigue una sola cuenta: los avisos de otra terminación no cuentan.</p>' +
     '<h3>Master</h3><p>Utilizado = el de partida, más compras, cargos y cuotas por cobrar, menos abonos. Las compras en cuotas ocupan todo su monto hasta pagarse; cada cuota se cobra en la facturación de su mes, que cierra cerca del día 22. Disponible = cupo − utilizado.</p>' +
-    '<h3>LiderBCI</h3><p>Se anota a mano. Total del periodo = compras − abonos y devoluciones. Puntos: 6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto. Al pagar, «Cerrar periodo» guarda los puntos y deja el total en cero.</p>' +
+    '<h3>LiderBCI</h3><p>Se anota a mano. Total del periodo = compras − abonos y devoluciones. Puntos: 6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto. Al pagar, «Cerrar periodo» guarda los puntos y deja el total en cero. Al tocar «Puntos» en el recuadro se abre su detalle, con los canjes y ajustes.</p>' +
     '<h3>Pagos del mes</h3><p>La lista de pagos de cada mes, en dos secciones. Avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.</p>' +
     '<h3>Mesadas</h3><p>Los aportes a Piti y Emi, con su asunto. Lo entregado en el mes se suma a lo gastado en el Resumen.</p>' +
     '<h3>Mis créditos</h3><p>Se ingresan a mano. Saldo = valor presente de las cuotas que faltan con la tasa del crédito (la anual se divide por 12), más el ajuste; cada crédito se redondea a $10.000 y el total de consumo a $100.000. El hipotecario va en UF y no se suma al total. Las deudas con abonos no tienen interés: pendiente menos abonos.</p>' +
@@ -987,7 +992,7 @@ const ACCIONES = {
   cuenta(el) { ui.cuenta = el.dataset.c; guardarLS(CL.ui, ui); render(); },
   anotar() { abrirHoja(ui.tab === 'mesadas' ? 'aporte' : ui.tab === 'creditos' ? 'credito' : 'mov'); },
   ayuda() { abrirHoja('ayuda'); },
-  hoja(el) { abrirHoja(el.dataset.h, { id: el.dataset.id || null, s: el.dataset.s || null, v: el.dataset.cuenta ? { cuenta: el.dataset.cuenta } : null }); },
+  hoja(el) { abrirHoja(el.dataset.h, { id: el.dataset.id || null, s: el.dataset.s || null, v: el.dataset.cuenta ? { cuenta: el.dataset.cuenta } : null, volver: el.dataset.volver || null }); },
   hija(el) { ui.hija = el.dataset.v; guardarLS(CL.ui, ui); render(); },
   sugerencia(el) { const i = $('hoja').querySelector('input[name="asunto"]'); if (i) i.value = el.dataset.v; },
   'deshacer-pago'(el) { hacer('creditos.json', { tipo: 'deshacerPago', idCredito: el.dataset.id }, 'quita el último pago de un crédito'); repintarHoja(); avisar('Pago quitado'); },
@@ -1013,7 +1018,8 @@ const ACCIONES = {
     else if (t === 'pago') hacer('pagos.json', { tipo: 'pagoBorrar', idPago: hoja.id }, 'elimina un pago');
     else if (t === 'aporte') hacer('mesadas.json', { tipo: 'borrarAporte', idAporte: hoja.id }, 'elimina un aporte');
     else if (t === 'credito') hacer('creditos.json', { tipo: 'borrarCredito', idCredito: hoja.id }, 'elimina un crédito');
-    cerrarHoja(); avisar('Eliminado');
+    if (hoja.volver) abrirHoja(hoja.volver); else cerrarHoja();
+    avisar('Eliminado');
   },
   pref(el) { prefs[el.dataset.k] = el.dataset.v; guardarLS(CL.prefs, prefs); aplicarPrefs(); render(); },
   actualizar() { sincronizar(true).then(() => avisar(sync.error ? 'No se pudo actualizar' : 'Al día', sync.error || 'Datos traídos desde GitHub', !!sync.error)); },
@@ -1105,7 +1111,8 @@ const FORMULARIOS = {
     if (!F.esFecha(fecha)) return errorHoja('Indica la fecha.');
     const pts = tipo === 'canje' ? -Math.abs(n) : n;
     hacer('cuentas.json', { tipo: 'puntos', mov: { id: hoja.id || F.nuevoId('p'), tipo, fecha, pts, nota: String(f.nota.value || '').trim().slice(0, 120) } }, tipo + ' de puntos: ' + pts);
-    cerrarHoja(); avisar('Puntos guardados');
+    if (hoja.volver) abrirHoja(hoja.volver); else cerrarHoja();
+    avisar('Puntos guardados');
   },
   pago(f) {
     const texto = String(f.texto.value || '').replace(/\s+/g, ' ').trim().slice(0, 80);

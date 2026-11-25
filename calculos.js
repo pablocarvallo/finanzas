@@ -5,7 +5,7 @@
 // por mes; los avisos del banco y de Copec llegan solos), pagos.json (pagos del mes), mesadas.json (aportes a Piti y
 // Emi) y creditos.json (créditos de consumo, hipotecario y deudas con abonos, de ingreso manual).
 
-export const VERSION = '1.1.2';
+export const VERSION = '1.1.3';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;

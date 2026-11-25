@@ -9,7 +9,8 @@ Mis créditos.
 - **Resumen**: gastado en el mes (cuentas, tarjetas y mesadas), avisos, las cuatro cuentas, mesadas y créditos, y los
   últimos movimientos. Desde ahí se abren Mesadas y Mis créditos.
 - **Cuentas**: FAN, Master, LiderBCI y Copec con su saldo, utilizado o total del periodo, movimientos por mes, cuotas por
-  cobrar (Master) y puntos (LiderBCI). Se anotan movimientos a mano y se ajusta el punto de partida.
+  cobrar (Master) y puntos (LiderBCI: al tocar «Puntos» en el recuadro se abre su detalle, con canjes y ajustes). Se
+  anotan movimientos a mano y se ajusta el punto de partida.
 - **Pagos**: pagos del mes en dos secciones, mes nuevo e historial.
 - **Mesadas**: aportes a Piti y Emi con su asunto, totales por hija y del mes, historial.
 - **Mis créditos**: consumo, hipotecario (UF) y deudas con abonos; pagos de cuota, abonos, saldo y término estimado.
