@@ -45,6 +45,8 @@ const movs = [
   { id: 'l', cuenta: 'master', fecha: '2026-11-23', hora: '00:01', comercio: 'Fuera después', monto: 2000, tipo: 'compra' },
   // Compra en cuotas el 25 nov: su primera cuota es de diciembre
   { id: 'm', cuenta: 'master', fecha: '2026-11-25', hora: '', comercio: 'Después del cierre', monto: 30000, tipo: 'compra', titular: 'Titular', cuotas: 3 },
+  // Compra en 3 cuotas del 31 oct cuya primera cuota se pasó a la facturación siguiente (diciembre)
+  { id: 'n', cuenta: 'master', fecha: '2026-10-31', hora: '18:52', comercio: 'Amazon', monto: 70534, tipo: 'compra', cuotas: 3, prox: '2026-12' },
 ];
 const ids = (sec) => sec.filas.map((f) => f.id + (f.cuota ? ':' + f.cuota + '/' + f.de : '') + '=' + f.monto);
 
@@ -52,12 +54,15 @@ test('extracto: total a pagar con compras de una cuota, cuotas del periodo con s
   const ex = F.extractoMaster(movs, '2026-10-23', '2026-11-22');
   assert.deepEqual(ids(ex.titular), ['b=4500']);
   assert.deepEqual(ids(ex.adicional), ['k=1500']);
-  assert.deepEqual(ids(ex.cuotas), ['i:4/6=15000', 'h:3/3=103334', 'f:3/3=57980', 'g:2/2=50001', 'c:1/12=29990']);
+  assert.deepEqual(ids(ex.cuotas), ['i:4/6=15000', 'h:3/3=103334', 'f:3/3=57980', 'g:2/2=50001', 'c:1/12=29990', 'n=0']);
+  // La de Amazon va como 0/3 y $0, con el mes de su primera cuota
+  const amazon = ex.cuotas.filas.find((f) => f.id === 'n');
+  assert.deepEqual([amazon.cuota, amazon.de, amazon.monto, amazon.primera], [0, 3, 0, '2026-12']);
   assert.deepEqual(ids(ex.cargos), ['d=3490']);
   assert.deepEqual(ids(ex.abonos), ['e=200000']);
   assert.equal(ex.cuotas.total, 15000 + 50001 + 103334 + 57980 + 29990);
   assert.equal(ex.total, 4500 + 1500 + ex.cuotas.total + 3490);
-  assert.equal(ex.n, 8);
+  assert.equal(ex.n, 9);
   // Las compras en cuotas no son de Titular ni de Adicional, aunque el movimiento traiga la tarjeta
   assert.equal(ex.cuotas.filas.find((f) => f.id === 'c').tarjeta, '');
   assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', titular: 'Adicional', cuotas: 3 }), '');
@@ -66,8 +71,11 @@ test('extracto: total a pagar con compras de una cuota, cuotas del periodo con s
   assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'cuota', titular: 'Titular', cuotas: 2 }), '');
   // Varios meses: cada cuota en su facturación
   const largo = F.extractoMaster(movs, '2026-09-01', '2026-10-31');
-  assert.deepEqual(ids(largo.cuotas), ['i:2/6=15000', 'h:1/3=103333', 'i:3/6=15000', 'h:2/3=103333', 'g:1/2=50000']);
-  assert.equal(F.extractoMaster(movs, '2026-12-01', '2026-12-31').cuotas.filas.map((f) => f.id + ':' + f.cuota).join(), 'i:5,c:2,m:1');
+  // Las del 23 y 31 oct (SII y Amazon) empiezan a cobrarse después del 31 oct: van con $0
+  assert.deepEqual(ids(largo.cuotas), ['i:2/6=15000', 'h:1/3=103333', 'i:3/6=15000', 'h:2/3=103333', 'g:1/2=50000', 'f:2/3=0', 'n=0']);
+  assert.equal(F.extractoMaster(movs, '2026-12-01', '2026-12-31').cuotas.filas.map((f) => f.id + ':' + f.cuota).join(), 'i:5,n:1,c:2,m:1');
+  // En la facturación siguiente, Amazon ya va como 1/3 por un tercio
+  assert.deepEqual(ids(F.extractoMaster(movs, '2026-11-23', '2026-12-22').cuotas).filter((x) => x.startsWith('n')), ['n:1/3=23511']);
 });
 
 test('cuotas: valor de cada una, número con el total anotado y estado', () => {
@@ -100,11 +108,12 @@ test('Excel: ZIP válido con el extracto en el orden de la app', () => {
   const texto = [...sst.matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((x) => x[1]);
   const pos = (t) => texto.indexOf(t);
   assert.ok(pos('Total a pagar') < pos('Compras Titular') && pos('Compras Titular') < pos('Compras Adicional') && pos('Compras Adicional') < pos('Cuotas del periodo') && pos('Cuotas del periodo') < pos('Cargos'));
-  assert.ok(texto.includes('3/3') && texto.includes('1/12') && texto.includes('Falabella TV') && !texto.some((t) => / · Adicional/.test(t)));
+  assert.ok(texto.includes('3/3') && texto.includes('1/12') && texto.includes('0/3') && texto.includes('Falabella TV') && !texto.some((t) => / · Adicional/.test(t)));
+  assert.ok(texto.includes('Amazon (primera cuota en diciembre 2026)'));
   // Total a pagar: suma de los totales de cada bloque (sin abonos), con su valor ya calculado
-  assert.match(hoja, new RegExp('<c r="D4" s="9"><f>D6\\+D10\\+D14\\+D22</f><v>' + ex.total + '</v></c>'));
+  assert.match(hoja, new RegExp('<c r="D4" s="9"><f>D6\\+D10\\+D14\\+D23</f><v>' + ex.total + '</v></c>'));
   assert.match(hoja, /<c r="D6" s="10"><f>SUM\(D8:D8\)<\/f><v>4500<\/v><\/c>/);
-  assert.match(hoja, new RegExp('<c r="D14" s="10"><f>SUM\\(D16:D20\\)</f><v>' + ex.cuotas.total + '</v></c>'));
+  assert.match(hoja, new RegExp('<c r="D14" s="10"><f>SUM\\(D16:D21\\)</f><v>' + ex.cuotas.total + '</v></c>'));
   assert.match(hoja, /<c r="A8" s="4"><v>46318<\/v><\/c>/);
   assert.match(sst, /Abonos \(pagos a la tarjeta; no se restan\)/);
   assert.match(hoja, /<v>1410640<\/v>/);

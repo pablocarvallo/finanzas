@@ -41,12 +41,15 @@ Las de las apps antiguas (pruebas en `pruebas/calculos.test.js`):
 
 - FAN y Copec: saldo ajustado + entradas − salidas desde ese momento. FAN sigue una sola cuenta (su terminación).
 - Master: utilizado de partida + compras, cargos y cuotas por cobrar − abonos, desde ese día. Las compras en cuotas ocupan
-  todo su monto; cada cuota se cobra en la facturación de su mes (cierra el día 22). Titular o Adicional solo en las
-  compras a una cuota: las compras en cuotas son una categoría aparte, sin tarjeta.
+  todo su monto; cada cuota se cobra en la facturación de su mes (cierra el día 22). Al anotar una compra en cuotas se
+  elige la facturación de la primera cuota (`prox`): la de la fecha o una de las tres siguientes, para las que el banco
+  empieza a cobrar después. Titular o Adicional solo en las compras a una cuota: las compras en cuotas son una
+  categoría aparte, sin tarjeta.
 - Extracto de Master entre dos fechas, ambas incluidas (por defecto, la última facturación, del 23 al 22): total a pagar =
   compras Titular + compras Adicional en una cuota + cuotas del periodo + cargos. Las compras en cuotas van por la cuota
   cuya facturación (cierre el día 22 de su mes) cae entre las fechas, con su número (2/3); se buscan en los meses con
-  movimientos hasta 60 meses antes. En «Cuotas por cobrar» se puede anotar de cuántas cuotas era la compra
+  movimientos hasta 60 meses antes; una compra de esas fechas cuya primera cuota se cobra después va como 0/3 y $0. En
+  «Cuotas por cobrar» se puede anotar de cuántas cuotas era la compra
   (`cuotas_total`) para que el número coincida con el del banco. Los abonos se muestran aparte y no se restan. El
   archivo .xlsx (`excel.js`, sin bibliotecas) sigue el mismo orden, con un total por bloque; en el iPhone sale por la
   hoja de compartir (Guardar en Archivos, abrir en Excel, enviar).

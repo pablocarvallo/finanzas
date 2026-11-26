@@ -5,7 +5,7 @@
 // por mes; los avisos del banco y de Copec llegan solos), pagos.json (pagos del mes), mesadas.json (aportes a Piti y
 // Emi) y creditos.json (créditos de consumo, hipotecario y deudas con abonos, de ingreso manual).
 
-export const VERSION = '1.2.2';
+export const VERSION = '1.2.3';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;
@@ -147,7 +147,9 @@ function masterVista(c, movs, hoy) {
 // Total a pagar = compras Titular + compras Adicional en una cuota + cuotas del periodo + cargos. Las compras en cuotas
 // no van por su monto: va cada cuota cuya facturación (cierre el día 22 de su mes) cae entre las dos fechas, con su
 // número (2/3). Los abonos se muestran aparte y no se restan: son pagos a la tarjeta. Cuentan las compras en cuotas de
-// cualquier fecha (también las anteriores al punto de partida): el banco sigue cobrando sus cuotas.
+// cualquier fecha (también las anteriores al punto de partida): el banco sigue cobrando sus cuotas. La primera cuota va
+// en la facturación «prox» de la compra (por defecto, la de su fecha; se puede pasar a una siguiente). Si la compra es
+// de estas fechas y su primera cuota se cobra después, va igual en la lista, como 0/3 y $0, con «primera» = ese mes.
 export function periodoExtracto(hoy) {
   const ym = hoy.slice(0, 7), cierre = +hoy.slice(8, 10) > CIERRE ? ym : sumarMesesYM(ym, -1);
   return { desde: sumarMesesYM(cierre, -1) + '-' + pad(CIERRE + 1), hasta: cierre + '-' + pad(CIERRE) };
@@ -168,11 +170,15 @@ export function extractoMaster(movs, desde, hasta) {
   });
   propios.filter(esCuotas).forEach((m) => {
     const n = Math.max(1, Math.round(m.cuotas) || 1), prox = m.prox || proxDe(m.fecha), off = desfaseCuotas(m);
+    let alguna = false;
     for (let k = 1; k <= n; k++) {
       const ym = sumarMesesYM(prox, k - 1), cierre = cierreDe(ym);
       if (cierre < desde || cierre > hasta) continue;
+      alguna = true;
       poner(ex.cuotas, Object.assign(fila(m), { cuota: off + k, de: off + n, facturacion: ym, monto: valorCuota(m, k), montoCompra: m.monto }));
     }
+    if (!alguna && m.fecha >= desde && m.fecha <= hasta && cierreDe(prox) > hasta)
+      poner(ex.cuotas, Object.assign(fila(m), { cuota: off, de: off + n, facturacion: prox, monto: 0, montoCompra: m.monto, primera: prox }));
   });
   ex.cuotas.filas.sort((a, b) => (a.facturacion < b.facturacion ? -1 : a.facturacion > b.facturacion ? 1 : orden(a, b)));
   ex.total = ex.titular.total + ex.adicional.total + ex.cuotas.total + ex.cargos.total;

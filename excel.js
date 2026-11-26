@@ -3,7 +3,7 @@
 // Un .xlsx es un ZIP con unas pocas partes en XML. Se guarda sin comprimir: los extractos son pequeños.
 // Viene de la app Master (pablocarvallo/master), que ya exportaba su extracto así.
 
-import { fechaCorta } from './calculos.js';
+import { fechaCorta, nombreMes } from './calculos.js';
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -152,6 +152,7 @@ export function libro(hojas, ahora = new Date()) {
 
 /* ---------- Extracto de Master ---------- */
 const fechaLarga = (k) => fechaCorta(k) + ' ' + k.slice(0, 4);
+const mesAno = (ym) => nombreMes(ym) + ' ' + ym.slice(0, 4);
 export const nombreExtracto = (ex) => 'Extracto Master ' + ex.desde + ' al ' + ex.hasta + '.xlsx';
 export const numeroCuota = (f) => f.cuota + '/' + f.de;
 // ex: lo que devuelve extractoMaster de calculos.js. info: { generado (texto), cupo, utilizado, disponible, enCuotas },
@@ -171,7 +172,7 @@ export function extractoXlsx(ex, info = {}, ahora = new Date()) {
     filas.push([{ v: titulo, s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, null]);
     filas.push([{ v: conCuota ? 'Fecha compra' : 'Fecha', s: 'negrita' }, { v: 'Comercio', s: 'negrita' }, { v: conCuota ? 'Cuota' : '', s: 'negrita' }, { v: 'Monto', s: 'negritaD' }]);
     const primera = filas.length + 1;
-    sec.filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio,
+    sec.filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio + (f.primera ? ' (primera cuota en ' + mesAno(f.primera) + ')' : ''),
       conCuota ? numeroCuota(f) : '', { v: f.monto, s: 'monto' }]));
     if (!sec.filas.length) filas.push(['', { v: 'Sin movimientos', s: 'nota' }]);
     const ultima = filas.length;
@@ -192,6 +193,6 @@ export function extractoXlsx(ex, info = {}, ahora = new Date()) {
     estado.forEach(([k, v]) => filas.push([k, '', '', { v, s: 'monto' }]));
     filas.push([]);
   }
-  filas.push([{ v: 'Las compras en cuotas van por la cuota que se factura en el periodo (cierre el día 22). Los abonos no se restan del total.', s: 'nota' }]);
+  filas.push([{ v: 'Las compras en cuotas van por la cuota que se factura en el periodo (cierre el día 22); las que empiezan a cobrarse después van con 0 y $0. Los abonos no se restan del total.', s: 'nota' }]);
   return libro([{ nombre: 'Extracto', filas, anchos: [13, 40, 8, 15] }], ahora);
 }
