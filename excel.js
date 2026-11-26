@@ -3,7 +3,7 @@
 // Un .xlsx es un ZIP con unas pocas partes en XML. Se guarda sin comprimir: los extractos son pequeños.
 // Viene de la app Master (pablocarvallo/master), que ya exportaba su extracto así.
 
-import { fechaCorta, NOMBRE_TIPO_EXTRACTO } from './calculos.js';
+import { fechaCorta } from './calculos.js';
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -12,8 +12,9 @@ const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationsh
 const NS_PKG = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const CT = 'application/vnd.openxmlformats-officedocument.spreadsheetml.';
 
-// Estilos de celda: encabezado de tabla, monto en pesos, monto en negrita, fecha, hora, título, negrita y nota
-const ESTILOS = { enc: 1, monto: 2, montoB: 3, fecha: 4, hora: 5, titulo: 6, negrita: 7, nota: 8 };
+// Estilos de celda: encabezado de tabla, monto en pesos, monto en negrita, fecha, hora, título, negrita, nota, monto
+// grande (como el título), monto en un encabezado de tabla y negrita a la derecha
+const ESTILOS = { enc: 1, monto: 2, montoB: 3, fecha: 4, hora: 5, titulo: 6, negrita: 7, nota: 8, montoG: 9, encMonto: 10, negritaD: 11 };
 
 /* ---------- Fechas para Excel ---------- */
 // Excel cuenta los días desde el 30 dic 1899; la hora es la fracción del día
@@ -114,7 +115,7 @@ export function libro(hojas, ahora = new Date()) {
     '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDFE9FD"/><bgColor indexed="64"/></patternFill></fill></fills>' +
     '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FF9FB4E6"/></bottom><diagonal/></border></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="9"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+    '<cellXfs count="12"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
     '<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>' +
     '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
     '<xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
@@ -122,7 +123,10 @@ export function libro(hojas, ahora = new Date()) {
     '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
     '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
     '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
-    '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>' +
+    '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+    '<xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+    '<xf numFmtId="164" fontId="3" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"/>' +
+    '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right"/></xf></cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
   const filtros = partes.map((p, i) => p.filtro ? '<definedName name="_xlnm._FilterDatabase" localSheetId="' + i + '" hidden="1">\'' + p.nombre.replace(/'/g, "''") + '\'!' + p.filtro.replace(/([A-Z]+)(\d+)/g, '$$$1$$$2') + '</definedName>' : '').join('');
   const archivos = [
@@ -149,35 +153,45 @@ export function libro(hojas, ahora = new Date()) {
 /* ---------- Extracto de Master ---------- */
 const fechaLarga = (k) => fechaCorta(k) + ' ' + k.slice(0, 4);
 export const nombreExtracto = (ex) => 'Extracto Master ' + ex.desde + ' al ' + ex.hasta + '.xlsx';
-export const tipoExtracto = (f) => (f.tipo === 'compra' && f.cuotas > 1 ? 'Compra en cuotas' : NOMBRE_TIPO_EXTRACTO[f.tipo] || f.tipo);
+export const numeroCuota = (f) => f.cuota + '/' + f.de;
 // ex: lo que devuelve extractoMaster de calculos.js. info: { generado (texto), cupo, utilizado, disponible, enCuotas },
-// el estado de la tarjeta al generar el archivo (se omite lo que venga vacío). Hojas: Resumen y Movimientos.
+// el estado de la tarjeta al generar el archivo (se omite lo que venga vacío). Una hoja, en el orden de la app: total a
+// pagar, compras Titular, compras Adicional, cuotas del periodo, cargos y abonos, cada bloque con su total (fórmula).
 export function extractoXlsx(ex, info = {}, ahora = new Date()) {
-  const t = ex.t, n = ex.filas.length, ultima = n + 1;
-  const m = (v, s) => ({ v, s: s || 'monto' });
-  const resumen = [
+  const filas = [
     [{ v: 'Master · Extracto de la tarjeta de crédito', s: 'titulo' }],
     ['Del ' + fechaLarga(ex.desde) + ' al ' + fechaLarga(ex.hasta) + (info.generado ? ' · generado el ' + info.generado : '')],
     [],
-    [{ v: 'Del periodo', s: 'enc' }, { v: 'Monto', s: 'enc' }, { v: 'Movimientos', s: 'enc' }],
-    ['Compras Titular', m(t.titular), t.nTitular],
-    ['Compras Adicional', m(t.adicional), t.nAdicional],
   ];
-  if (t.nCuotas) resumen.push(['Cuotas de compras anteriores', m(t.cuotas), t.nCuotas]);
-  resumen.push(['Cargos', m(t.cargos), t.nCargos], ['Abonos', m(t.abonos), t.nAbonos],
-    [{ v: 'Total del periodo', s: 'negrita' }, m(t.total, 'montoB'), { v: n, s: 'negrita' }]);
+  const iTotal = filas.push([{ v: 'Total a pagar', s: 'titulo' }, '', '', null]) - 1;
+  filas.push([]);
+  const sumados = [];
+  const bloque = (titulo, sec, conCuota, suma) => {
+    const cab = filas.length + 1;
+    filas.push([{ v: titulo, s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, null]);
+    filas.push([{ v: conCuota ? 'Fecha compra' : 'Fecha', s: 'negrita' }, { v: 'Comercio', s: 'negrita' }, { v: conCuota ? 'Cuota' : '', s: 'negrita' }, { v: 'Monto', s: 'negritaD' }]);
+    const primera = filas.length + 1;
+    sec.filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio + (conCuota && f.tarjeta === 'Adicional' ? ' · Adicional' : ''),
+      conCuota ? numeroCuota(f) : '', { v: f.monto, s: 'monto' }]));
+    if (!sec.filas.length) filas.push(['', { v: 'Sin movimientos', s: 'nota' }]);
+    const ultima = filas.length;
+    filas[cab - 1][3] = sec.filas.length ? { v: sec.total, s: 'encMonto', f: 'SUM(D' + primera + ':D' + ultima + ')' } : { v: 0, s: 'encMonto' };
+    if (suma) sumados.push('D' + cab);
+    filas.push([]);
+  };
+  bloque('Compras Titular', ex.titular, false, true);
+  bloque('Compras Adicional', ex.adicional, false, true);
+  bloque('Cuotas del periodo', ex.cuotas, true, true);
+  if (ex.cargos.filas.length) bloque('Cargos', ex.cargos, false, true);
+  if (ex.abonos.filas.length) bloque('Abonos (pagos a la tarjeta; no se restan)', ex.abonos, false, false);
+  filas[iTotal][3] = { v: ex.total, s: 'montoG', f: sumados.join('+') };
   const estado = [['Cupo', info.cupo], ['Utilizado', info.utilizado], ['Disponible', info.disponible], ['Por cobrar en cuotas', info.enCuotas]]
     .filter(([, v]) => typeof v === 'number' && isFinite(v));
-  if (estado.length) resumen.push([], [{ v: 'Estado de la tarjeta al generar', s: 'enc' }, { v: 'Monto', s: 'enc' }], ...estado.map(([k, v]) => [k, m(v)]));
-  resumen.push([], [{ v: 'Compras, cargos y cuotas suman; abonos restan. Las compras en cuotas van por su monto total.', s: 'nota' }]);
-
-  const enc = ['N°', 'Fecha', 'Hora', 'Comercio', 'Tipo', 'Tarjeta', 'Cuotas', 'Monto'].map((v) => ({ v, s: 'enc' }));
-  const movs = [enc].concat(ex.filas.map((f, i) => [i + 1, { v: fechaExcel(f.fecha), s: 'fecha' }, f.hora ? { v: horaExcel(f.hora), s: 'hora' } : '',
-    f.comercio, tipoExtracto(f), f.tarjeta, f.cuotas || '', m(f.monto)]));
-  if (n) movs.push([], ['', '', '', { v: 'Total', s: 'negrita' }, '', '', '', { v: t.total, s: 'montoB', f: 'SUBTOTAL(9,H2:H' + ultima + ')' }]);
-  else movs.push([], ['', '', '', { v: 'Sin movimientos en estas fechas.', s: 'nota' }]);
-  return libro([
-    { nombre: 'Resumen', filas: resumen, anchos: [40, 16, 13] },
-    { nombre: 'Movimientos', filas: movs, anchos: [6, 12, 8, 36, 24, 11, 8, 14], congelar: true, filtro: n ? 'A1:H' + ultima : null, horizontal: true },
-  ], ahora);
+  if (estado.length) {
+    filas.push([{ v: 'Estado de la tarjeta al generar', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }]);
+    estado.forEach(([k, v]) => filas.push([k, '', '', { v, s: 'monto' }]));
+    filas.push([]);
+  }
+  filas.push([{ v: 'Las compras en cuotas van por la cuota que se factura en el periodo (cierre el día 22). Los abonos no se restan del total.', s: 'nota' }]);
+  return libro([{ nombre: 'Extracto', filas, anchos: [13, 40, 8, 15] }], ahora);
 }

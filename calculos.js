@@ -5,7 +5,7 @@
 // por mes; los avisos del banco y de Copec llegan solos), pagos.json (pagos del mes), mesadas.json (aportes a Piti y
 // Emi) y creditos.json (créditos de consumo, hipotecario y deudas con abonos, de ingreso manual).
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.2.1';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;
@@ -98,11 +98,22 @@ function cuentaVista(c, movs, hoy) {
 export const CIERRE = 22;
 export function proxDe(fecha) { const ym = fecha.slice(0, 7); return +fecha.slice(8, 10) <= CIERRE ? ym : sumarMesesYM(ym, 1); }
 export const esCuotas = (m) => m.tipo === 'cuota' || (m.tipo === 'compra' && (m.cuotas || 1) > 1);
+// «Cuotas por cobrar» (tipo cuota) guarda solo las que faltan; si se anotó de cuántas era la compra (cuotas_total), la
+// numeración sigue la del banco: con 3 en total y 1 que falta, esa es la 3/3.
+export function desfaseCuotas(m) {
+  const n = Math.max(1, Math.round(m.cuotas) || 1), tot = Math.round(m.cuotas_total) || 0;
+  return m.tipo === 'cuota' && tot > n ? tot - n : 0;
+}
+// Valor de la cuota k (desde 1): todas iguales, sin decimales; la última se lleva lo que sobra
+export function valorCuota(m, k) {
+  const n = Math.max(1, Math.round(m.cuotas) || 1), valor = Math.floor(m.monto / n);
+  return k >= n ? m.monto - valor * (n - 1) : valor;
+}
 export function estadoCuotas(m, hoy) {
   const n = Math.max(1, m.cuotas || 1), prox = m.prox || proxDe(m.fecha), valor = Math.floor(m.monto / n);
   const hechas = Math.max(0, Math.min(n, mesesEntre(prox, proxDe(hoy))));
-  const cobrado = hechas >= n ? m.monto : hechas * valor;
-  return { n, hechas, pendientes: n - hechas, valor, cobrado, pendiente: m.monto - cobrado,
+  const cobrado = hechas >= n ? m.monto : hechas * valor, desfase = desfaseCuotas(m);
+  return { n, hechas, pendientes: n - hechas, valor, cobrado, pendiente: m.monto - cobrado, desfase, de: desfase + n,
     siguiente: hechas < n ? sumarMesesYM(prox, hechas) : '', ultima: sumarMesesYM(prox, n - 1),
     valorSiguiente: hechas < n ? (hechas + 1 === n ? m.monto - valor * (n - 1) : valor) : 0 };
 }
@@ -129,33 +140,41 @@ function masterVista(c, movs, hoy) {
   };
 }
 
-// Extracto de Master: los movimientos entre dos fechas, ambas incluidas, del más antiguo al más nuevo. Los montos van
-// como en el estado de cuenta del banco: compras, cargos y cuotas suman; abonos y devoluciones restan. Las compras en
-// cuotas van por su monto total. Por defecto, la última facturación cerrada (del día 23 al 22).
+// Extracto de Master entre dos fechas, ambas incluidas (por defecto, la última facturación cerrada: del día 23 al 22).
+// Total a pagar = compras Titular + compras Adicional en una cuota + cuotas del periodo + cargos. Las compras en cuotas
+// no van por su monto: va cada cuota cuya facturación (cierre el día 22 de su mes) cae entre las dos fechas, con su
+// número (2/3). Los abonos se muestran aparte y no se restan: son pagos a la tarjeta. Cuentan las compras en cuotas de
+// cualquier fecha (también las anteriores al punto de partida): el banco sigue cobrando sus cuotas.
 export function periodoExtracto(hoy) {
   const ym = hoy.slice(0, 7), cierre = +hoy.slice(8, 10) > CIERRE ? ym : sumarMesesYM(ym, -1);
   return { desde: sumarMesesYM(cierre, -1) + '-' + pad(CIERRE + 1), hasta: cierre + '-' + pad(CIERRE) };
 }
-export const NOMBRE_TIPO_EXTRACTO = { compra: 'Compra', cuota: 'Cuotas de compra anterior', cargo: 'Cargo', abono: 'Abono', devolucion: 'Devolución' };
+export const cierreDe = (ym) => ym + '-' + pad(CIERRE);
 export function extractoMaster(movs, desde, hasta) {
-  const filas = movs.filter((m) => m.cuenta === 'master' && m.fecha >= desde && m.fecha <= hasta)
-    .sort((a, b) => (momento(a) < momento(b) ? -1 : momento(a) > momento(b) ? 1 : String(a.id) < String(b.id) ? -1 : 1))
-    .map((m) => {
-      const compra = m.tipo === 'compra' || m.tipo === 'cuota';
-      return { id: m.id, fecha: m.fecha, hora: esHora(m.hora) ? m.hora : '', comercio: m.comercio || NOMBRE_TIPO[m.tipo] || m.tipo, tipo: m.tipo,
-        tarjeta: compra ? (m.titular === 'Adicional' ? 'Adicional' : 'Titular') : '', cuotas: compra ? Math.max(1, Math.round(m.cuotas) || 1) : 0,
-        monto: signo(m) < 0 ? m.monto : -m.monto };
-    });
-  const t = { titular: 0, nTitular: 0, adicional: 0, nAdicional: 0, cuotas: 0, nCuotas: 0, cargos: 0, nCargos: 0, abonos: 0, nAbonos: 0, total: 0 };
-  filas.forEach((f) => {
-    t.total += f.monto;
-    if (f.tipo === 'compra' && f.tarjeta === 'Adicional') { t.adicional += f.monto; t.nAdicional++; }
-    else if (f.tipo === 'compra') { t.titular += f.monto; t.nTitular++; }
-    else if (f.tipo === 'cuota') { t.cuotas += f.monto; t.nCuotas++; }
-    else if (f.monto < 0) { t.abonos += f.monto; t.nAbonos++; }
-    else { t.cargos += f.monto; t.nCargos++; }
+  const orden = (a, b) => (momento(a) < momento(b) ? -1 : momento(a) > momento(b) ? 1 : String(a.id) < String(b.id) ? -1 : 1);
+  const propios = movs.filter((m) => m.cuenta === 'master').sort(orden);
+  const fila = (m) => ({ id: m.id, fecha: m.fecha, hora: esHora(m.hora) ? m.hora : '', comercio: m.comercio || NOMBRE_TIPO[m.tipo] || m.tipo, tipo: m.tipo,
+    tarjeta: m.tipo === 'compra' || m.tipo === 'cuota' ? (m.titular === 'Adicional' ? 'Adicional' : 'Titular') : '', monto: m.monto });
+  const seccion = () => ({ total: 0, filas: [] });
+  const ex = { desde, hasta, titular: seccion(), adicional: seccion(), cuotas: seccion(), cargos: seccion(), abonos: seccion() };
+  const poner = (sec, f) => { sec.filas.push(f); sec.total += f.monto; };
+  propios.filter((m) => m.fecha >= desde && m.fecha <= hasta && !esCuotas(m)).forEach((m) => {
+    if (m.tipo === 'compra') poner(m.titular === 'Adicional' ? ex.adicional : ex.titular, fila(m));
+    else if (signo(m) > 0) poner(ex.abonos, fila(m));
+    else poner(ex.cargos, fila(m));
   });
-  return { desde, hasta, filas, t };
+  propios.filter(esCuotas).forEach((m) => {
+    const n = Math.max(1, Math.round(m.cuotas) || 1), prox = m.prox || proxDe(m.fecha), off = desfaseCuotas(m);
+    for (let k = 1; k <= n; k++) {
+      const ym = sumarMesesYM(prox, k - 1), cierre = cierreDe(ym);
+      if (cierre < desde || cierre > hasta) continue;
+      poner(ex.cuotas, Object.assign(fila(m), { cuota: off + k, de: off + n, facturacion: ym, monto: valorCuota(m, k), montoCompra: m.monto }));
+    }
+  });
+  ex.cuotas.filas.sort((a, b) => (a.facturacion < b.facturacion ? -1 : a.facturacion > b.facturacion ? 1 : orden(a, b)));
+  ex.total = ex.titular.total + ex.adicional.total + ex.cuotas.total + ex.cargos.total;
+  ex.n = ex.titular.filas.length + ex.adicional.filas.length + ex.cuotas.filas.length + ex.cargos.filas.length;
+  return ex;
 }
 
 // LiderBCI: total del periodo = compras − abonos y devoluciones desde el inicio del periodo. Puntos: 6 % en Lider,
