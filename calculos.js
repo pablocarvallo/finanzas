@@ -5,7 +5,7 @@
 // por mes; los avisos del banco y de Copec llegan solos), pagos.json (pagos del mes), mesadas.json (aportes a Piti y
 // Emi) y creditos.json (créditos de consumo, hipotecario y deudas con abonos, de ingreso manual).
 
-export const VERSION = '1.1.3';
+export const VERSION = '1.2.0';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;
@@ -127,6 +127,35 @@ function masterVista(c, movs, hoy) {
     cargosMes: sal.filter((m) => m.tipo !== 'compra').reduce((s, m) => s + m.monto, 0),
     entradasMes: delMes.filter((m) => signo(m) > 0).reduce((s, m) => s + m.monto, 0),
   };
+}
+
+// Extracto de Master: los movimientos entre dos fechas, ambas incluidas, del más antiguo al más nuevo. Los montos van
+// como en el estado de cuenta del banco: compras, cargos y cuotas suman; abonos y devoluciones restan. Las compras en
+// cuotas van por su monto total. Por defecto, la última facturación cerrada (del día 23 al 22).
+export function periodoExtracto(hoy) {
+  const ym = hoy.slice(0, 7), cierre = +hoy.slice(8, 10) > CIERRE ? ym : sumarMesesYM(ym, -1);
+  return { desde: sumarMesesYM(cierre, -1) + '-' + pad(CIERRE + 1), hasta: cierre + '-' + pad(CIERRE) };
+}
+export const NOMBRE_TIPO_EXTRACTO = { compra: 'Compra', cuota: 'Cuotas de compra anterior', cargo: 'Cargo', abono: 'Abono', devolucion: 'Devolución' };
+export function extractoMaster(movs, desde, hasta) {
+  const filas = movs.filter((m) => m.cuenta === 'master' && m.fecha >= desde && m.fecha <= hasta)
+    .sort((a, b) => (momento(a) < momento(b) ? -1 : momento(a) > momento(b) ? 1 : String(a.id) < String(b.id) ? -1 : 1))
+    .map((m) => {
+      const compra = m.tipo === 'compra' || m.tipo === 'cuota';
+      return { id: m.id, fecha: m.fecha, hora: esHora(m.hora) ? m.hora : '', comercio: m.comercio || NOMBRE_TIPO[m.tipo] || m.tipo, tipo: m.tipo,
+        tarjeta: compra ? (m.titular === 'Adicional' ? 'Adicional' : 'Titular') : '', cuotas: compra ? Math.max(1, Math.round(m.cuotas) || 1) : 0,
+        monto: signo(m) < 0 ? m.monto : -m.monto };
+    });
+  const t = { titular: 0, nTitular: 0, adicional: 0, nAdicional: 0, cuotas: 0, nCuotas: 0, cargos: 0, nCargos: 0, abonos: 0, nAbonos: 0, total: 0 };
+  filas.forEach((f) => {
+    t.total += f.monto;
+    if (f.tipo === 'compra' && f.tarjeta === 'Adicional') { t.adicional += f.monto; t.nAdicional++; }
+    else if (f.tipo === 'compra') { t.titular += f.monto; t.nTitular++; }
+    else if (f.tipo === 'cuota') { t.cuotas += f.monto; t.nCuotas++; }
+    else if (f.monto < 0) { t.abonos += f.monto; t.nAbonos++; }
+    else { t.cargos += f.monto; t.nCargos++; }
+  });
+  return { desde, hasta, filas, t };
 }
 
 // LiderBCI: total del periodo = compras − abonos y devoluciones desde el inicio del periodo. Puntos: 6 % en Lider,

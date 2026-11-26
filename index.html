@@ -227,6 +227,14 @@ button { -webkit-tap-highlight-color: transparent; }
 .c-estado .c-punto { width: 8px; height: 8px; }
 .c-acciones { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 16px 0; }
 .c-acciones .d-boton { flex: 1 1 140px; padding: 0 16px; }
+.c-acciones .c-boton-ancho { flex-basis: 100%; }
+.c-con-ico { gap: 8px; }
+.c-con-ico svg { flex: none; }
+.c-total .d-texto strong, .c-total .d-valor { font-weight: 700; }
+.c-cargando { display: flex; align-items: center; gap: 10px; margin: 18px 4px; font: 400 15px/20px var(--font-sans); color: var(--tinta-2); }
+.c-cargando::before { content: ""; width: 18px; height: 18px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--acento) 25%, transparent); border-top-color: var(--acento); animation: c-girar .8s linear infinite; }
+@keyframes c-girar { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .c-cargando::before { animation-duration: 2.4s; } }
 .d-heroe { margin: 8px 16px 0; }
 .d-heroe .c-cifra-chica { font-size: 34px; line-height: 40px; }
 .d-heroe .c-cifra-texto { font: 700 26px/32px var(--font-sans); letter-spacing: -0.2px; margin-top: 6px; }
@@ -302,6 +310,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .c-hoja h3 { margin: 20px 0 4px; font: 600 17px/22px var(--font-sans); }
 .c-hoja p { margin: 6px 0; font: 400 15px/21px var(--font-sans); color: var(--tinta-2); }
 .c-hoja p b { color: var(--tinta); }
+.c-hoja p.c-error { font-weight: 600; color: var(--negativo); }
 .c-hoja .c-pila { display: grid; gap: 10px; margin-top: 18px; }
 .c-hoja .d-boton { width: 100%; }
 .c-hoja .d-lista { margin: 12px 0 0; }
@@ -398,6 +407,7 @@ body.en-maletas .c-desvanecer { display: none; }
 
 <script type="module">
 import * as F from './calculos.js';
+import * as X from './excel.js';
 
 const API = 'https://domesticas-api.vercel.app';
 const BASE = ['cuentas.json', 'pagos.json', 'mesadas.json', 'creditos.json'];
@@ -432,6 +442,7 @@ const I = {
   escudo: '<path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6z"/><path d="M12 9v6M9 12h6"/>',
   ajustes: '<path d="M19.11 9.96L21.42 10.17L21.42 13.83L19.11 14.04A7.4 7.4 0 0 1 18.47 15.59L19.96 17.37L17.37 19.96L15.59 18.47A7.4 7.4 0 0 1 14.04 19.11L13.83 21.42L10.17 21.42L9.96 19.11A7.4 7.4 0 0 1 8.41 18.47L6.63 19.96L4.04 17.37L5.53 15.59A7.4 7.4 0 0 1 4.89 14.04L2.58 13.83L2.58 10.17L4.89 9.96A7.4 7.4 0 0 1 5.53 8.41L4.04 6.63L6.63 4.04L8.41 5.53A7.4 7.4 0 0 1 9.96 4.89L10.17 2.58L13.83 2.58L14.04 4.89A7.4 7.4 0 0 1 15.59 5.53L17.37 4.04L19.96 6.63L18.47 8.41A7.4 7.4 0 0 1 19.11 9.96Z"/><circle cx="12" cy="12" r="3"/>',
   volver: '<path d="M15 5l-7 7 7 7"/>',
+  doc: '<path d="M7 3.5h6.5L18 8v12.5H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M13.5 3.5V8H18"/><path d="M9.5 12.5h5M9.5 16h5"/>',
   enlace: '<path d="M14 5h5v5"/><path d="M19 5l-8 8"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
 };
 const ico = (n, t = 24, g = 2) => `<svg viewBox="0 0 24 24" width="${t}" height="${t}" fill="none" stroke="currentColor" stroke-width="${g}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
@@ -452,6 +463,8 @@ let hoja = null;
 
 const hoy = () => F.diaDe(new Date());
 const ahoraHM = () => F.horaDe(new Date());
+const fechaLarga = (k) => F.fechaCorta(k) + ' ' + k.slice(0, 4);
+let ultExtracto = null;                     // fechas del último extracto, mientras la app siga abierta
 function vista(archivo) {
   let d = srv[archivo] && srv[archivo].contenido != null ? srv[archivo].contenido : F.plantilla(archivo);
   for (const p of cola) if (p.archivo === archivo) d = F.aplicar(archivo, d, p.cambio);
@@ -650,7 +663,8 @@ function vistaCuentas() {
     html += e.definida
       ? heroe('Disponible', e.disponible != null ? F.pesos(e.disponible) : F.pesos(-e.utilizado), [['Utilizado', F.pesos(e.utilizado)], ['Cupo', e.cupo ? F.pesos(e.cupo) : 'Sin dato'], ['En cuotas', F.pesos(e.cuotasPendiente)]], e.cupo ? e.utilizado / e.cupo : null)
       : heroe('Disponible', 'Sin definir', [['Cómo empezar', 'Trae su respaldo o ajusta el utilizado']], null, true);
-    acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="master">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="ajustar">Ajustar</button>`);
+    acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="master">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="ajustar">Ajustar</button>`,
+      `<button class="d-boton d-boton--discreto c-boton-ancho c-con-ico" data-a="hoja" data-h="extracto">${ico('doc', 18)}Generar extracto</button>`);
   } else {
     html += heroe('Por pagar en el periodo', F.pesos(e.total), [['Compras', F.pesos(e.compras)], ['Abonos', F.pesos(e.abonos)], ['Puntos', F.miles(e.puntos), 'data-a="hoja" data-h="detalle-puntos" aria-label="Puntos: ' + F.miles(e.puntos) + '. Ver el detalle"']]);
     acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="liderbci">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="cerrar-periodo">Cerrar periodo</button>`);
@@ -808,6 +822,29 @@ function contenidoHoja() {
     return `<form data-f="cerrar-periodo"><h2>Cerrar periodo de LiderBCI</h2><p>Al pagar la tarjeta: los <b>${F.miles(e.puntosPeriodo)} puntos</b> del periodo quedan guardados y el total parte de cero. Las compras desde la fecha que elijas quedan en el periodo nuevo; las anteriores siguen en el historial.</p>` +
       campo('Inicio del periodo nuevo', `<input type="date" name="desde" value="${h}" required>`) + pie('Cerrar periodo') + '</form>';
   }
+  if (t === 'extracto') {
+    const p = ultExtracto || F.periodoExtracto(h);
+    return `<form data-f="extracto"><h2>Extracto de Master</h2><p>Elige desde y hasta qué día, ambos incluidos. Parte con la última facturación, que cierra cerca del día ${F.CIERRE}.</p>` +
+      `<div class="c-dos-campos">${campo('Desde', `<input type="date" name="desde" value="${p.desde}" max="${h}" required>`)}${campo('Hasta', `<input type="date" name="hasta" value="${p.hasta}" required>`)}</div>` +
+      pie('Generar extracto') + '</form>';
+  }
+  if (t === 'extracto-ver') {
+    const rango = 'Del ' + fechaLarga(hoja.desde) + ' al ' + fechaLarga(hoja.hasta);
+    const botones = (exportar) => '<div class="c-pila">' + (exportar ? `<button class="d-boton c-con-ico" data-a="exportar-extracto">${ico('doc', 18)}Exportar a Excel</button>` : '') +
+      '<button type="button" class="d-boton d-boton--discreto" data-a="hoja" data-h="extracto">Cambiar fechas</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
+    if (hoja.error) return `<h2>Extracto de Master</h2><p>${rango}.</p><p class="c-error">${esc(hoja.error)}</p>` + botones(false);
+    if (!hoja.ex) return `<h2>Extracto de Master</h2><p>${rango}.</p><p class="c-cargando" role="status">Leyendo los movimientos…</p>` + botones(false);
+    const { t: tt, filas } = hoja.ex, n = filas.length;
+    const linea = (titulo, k, v) => fila({ titulo, sub: k + ' ' + F.plural(k, 'movimiento', 'movimientos'), valor: F.pesos(v) });
+    return `<h2>Extracto de Master</h2><p>${rango} · ${n} ${F.plural(n, 'movimiento', 'movimientos')}${hoja.sinConexion ? '. Sin conexión: con los datos guardados en este iPhone' : ''}.</p>` +
+      '<ul class="d-lista d-vidrio">' + linea('Compras Titular', tt.nTitular, tt.titular) + linea('Compras Adicional', tt.nAdicional, tt.adicional) +
+      (tt.nCuotas ? linea('Cuotas de compras anteriores', tt.nCuotas, tt.cuotas) : '') + (tt.nCargos ? linea('Cargos', tt.nCargos, tt.cargos) : '') +
+      (tt.nAbonos ? linea('Abonos', tt.nAbonos, tt.abonos) : '') + fila({ titulo: 'Total del periodo', valor: F.pesos(tt.total), cls: 'c-total' }) + '</ul>' +
+      (n ? '<h3>Movimientos</h3><ul class="d-lista d-vidrio">' + filas.map((x) => fila({ titulo: esc(x.comercio),
+        sub: esc([F.fechaCorta(x.fecha) + (x.hora ? ', ' + x.hora : ''), x.tipo === 'compra' ? '' : X.tipoExtracto(x), x.tarjeta === 'Adicional' ? 'Adicional' : '', x.cuotas > 1 ? x.cuotas + ' cuotas' : ''].filter(Boolean).join(' · ')),
+        valor: `<span class="${x.monto < 0 ? 'd-valor--positivo' : ''}">${F.pesos(x.monto)}</span>` })).join('') + '</ul>' : '<p>No hay movimientos de Master en estas fechas.</p>') +
+      botones(n > 0);
+  }
   if (t === 'detalle-puntos') {
     const e = D.E.liderbci, c = F.cuenta(D.cuentas, 'liderbci') || {};
     const pm = (c.puntos_movimientos || []).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
@@ -898,7 +935,7 @@ function contenidoHoja() {
   }
   if (t === 'ayuda') return '<h2>Cómo funciona Finanzas</h2>' +
     '<h3>FAN y Copec</h3><p>Saldo = el saldo que ajustaste, más lo que entró y menos lo que salió desde ese momento. Las compras y giros de FAN y los cargos de Copec llegan solos con los avisos; los depósitos y abonos se anotan con +. FAN sigue una sola cuenta: los avisos de otra terminación no cuentan.</p>' +
-    '<h3>Master</h3><p>Utilizado = el de partida, más compras, cargos y cuotas por cobrar, menos abonos. Las compras en cuotas ocupan todo su monto hasta pagarse; cada cuota se cobra en la facturación de su mes, que cierra cerca del día 22. Disponible = cupo − utilizado.</p>' +
+    '<h3>Master</h3><p>Utilizado = el de partida, más compras, cargos y cuotas por cobrar, menos abonos. Las compras en cuotas ocupan todo su monto hasta pagarse; cada cuota se cobra en la facturación de su mes, que cierra cerca del día 22. Disponible = cupo − utilizado. «Generar extracto» muestra los movimientos entre dos fechas y los exporta a Excel: compras, cargos y cuotas suman, abonos restan, y las compras en cuotas van por su monto total.</p>' +
     '<h3>LiderBCI</h3><p>Se anota a mano. Total del periodo = compras − abonos y devoluciones. Puntos: 6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto. Al pagar, «Cerrar periodo» guarda los puntos y deja el total en cero. Al tocar «Puntos» en el recuadro se abre su detalle, con los canjes y ajustes.</p>' +
     '<h3>Pagos del mes</h3><p>La lista de pagos de cada mes, en dos secciones. Avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.</p>' +
     '<h3>Mesadas</h3><p>Los aportes a Piti y Emi, con su asunto. Lo entregado en el mes se suma a lo gastado en el Resumen.</p>' +
@@ -964,6 +1001,21 @@ function cerrarHoja() {
   });
   el.addEventListener('touchcancel', () => { if (t && t.arrastre) soltar(false); t = null; });
 })();
+// Entrega un archivo: en el iPhone, por la hoja de compartir (guardar en Archivos, abrir en Excel, enviar); en un
+// computador, como descarga.
+async function entregarArchivo(bytes, nombre, tipo) {
+  const blob = new Blob([bytes], { type: tipo });
+  let archivo = null;
+  try { archivo = new File([blob], nombre, { type: tipo }); } catch (e) {}
+  if (archivo && navigator.maxTouchPoints > 0 && navigator.canShare && navigator.canShare({ files: [archivo] })) {
+    try { await navigator.share({ files: [archivo] }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = nombre; a.style.display = 'none';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  avisar('Extracto descargado', nombre);
+}
 function errorHoja(msg) { const e = $('hoja').querySelector('[data-error]'); if (e) { e.textContent = msg; e.hidden = !msg; } }
 let tToast = 0;
 function avisar(titulo, sub, error) {
@@ -983,6 +1035,16 @@ function valoresMov(f) {
 
 /* ---------- Acciones ---------- */
 const ACCIONES = {
+  'exportar-extracto'() {
+    if (!hoja || !hoja.ex) return;
+    const e = datos().E.master, h = hoy();
+    let bytes;
+    try {
+      bytes = X.extractoXlsx(hoja.ex, { generado: fechaLarga(h) + ', ' + ahoraHM(), cupo: e.cupo, utilizado: e.definida ? e.utilizado : null,
+        disponible: e.disponible, enCuotas: e.cuotasPendiente });
+    } catch (err) { avisar('No se pudo armar el archivo de Excel', err.message, true); return; }
+    entregarArchivo(bytes, X.nombreExtracto(hoja.ex), X.XLSX_MIME);
+  },
   tab(el) { ui.tab = el.dataset.t; guardarLS(CL.ui, ui); window.scrollTo(0, 0); render(); },
   ir(el) {
     const d = el.dataset.ir;
@@ -1040,6 +1102,29 @@ const ACCIONES = {
 };
 
 const FORMULARIOS = {
+  extracto(f) {
+    const desde = f.desde.value, hasta = f.hasta.value;
+    if (!F.esFecha(desde) || !F.esFecha(hasta)) return errorHoja('Indica las dos fechas.');
+    if (desde > hasta) return errorHoja('La fecha de inicio debe ser anterior a la de cierre.');
+    if (F.mesesEntre(desde.slice(0, 7), hasta.slice(0, 7)) > 23) return errorHoja('Elige un rango de hasta dos años.');
+    ultExtracto = { desde, hasta };
+    const meses = [];
+    for (let ym = desde.slice(0, 7); ym <= hasta.slice(0, 7); ym = F.sumarMesesYM(ym, 1)) meses.push(ym);
+    // Los meses que la app ya mantiene al día se usan tal cual; los demás se leen de GitHub al momento
+    const al = mesesNecesarios(), leer = llave ? meses.filter((ym) => !al.includes(ym) || !(srv[F.archivoMes(ym)] && srv[F.archivoMes(ym)].leido)) : [];
+    const armar = () => F.extractoMaster(meses.flatMap((ym) => vista(F.archivoMes(ym))), desde, hasta);
+    if (!leer.length) { abrirHoja('extracto-ver', { desde, hasta, ex: armar() }); return; }
+    abrirHoja('extracto-ver', { desde, hasta });
+    const marca = hoja;
+    Promise.allSettled(leer.map((ym) => leerServidor(F.archivoMes(ym)))).then((r) => {
+      if (hoja !== marca) return;
+      if (r.some((x) => x.status === 'rejected')) {
+        if (leer.some((ym) => !srv[F.archivoMes(ym)])) { hoja.error = 'No se pudieron leer los movimientos de esas fechas. Revisa la conexión e inténtalo de nuevo.'; repintarHoja(); return; }
+        hoja.sinConexion = true;
+      }
+      hoja.ex = armar(); repintarHoja();
+    });
+  },
   async conectar(f) {
     const codigo = String(f.codigo.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const err = $('errConectar'), mostrar = (m) => { err.textContent = m; err.hidden = !m; };

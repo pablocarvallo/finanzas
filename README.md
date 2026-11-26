@@ -9,7 +9,8 @@ Mis créditos.
 - **Resumen**: gastado en el mes (cuentas, tarjetas y mesadas), avisos, las cuatro cuentas, mesadas y créditos, y los
   últimos movimientos. Desde ahí se abren Mesadas y Mis créditos.
 - **Cuentas**: FAN, Master, LiderBCI y Copec con su saldo, utilizado o total del periodo, movimientos por mes, cuotas por
-  cobrar (Master) y puntos (LiderBCI: al tocar «Puntos» en el recuadro se abre su detalle, con canjes y ajustes). Se
+  cobrar (Master), «Generar extracto» de Master entre dos fechas con exportación a Excel, y puntos (LiderBCI: al tocar
+  «Puntos» en el recuadro se abre su detalle, con canjes y ajustes). Se
   anotan movimientos a mano y se ajusta el punto de partida.
 - **Pagos**: pagos del mes en dos secciones, mes nuevo e historial.
 - **Mesadas**: aportes a Piti y Emi con su asunto, totales por hija y del mes, historial.
@@ -41,6 +42,10 @@ Las de las apps antiguas (pruebas en `pruebas/calculos.test.js`):
 - FAN y Copec: saldo ajustado + entradas − salidas desde ese momento. FAN sigue una sola cuenta (su terminación).
 - Master: utilizado de partida + compras, cargos y cuotas por cobrar − abonos, desde ese día. Las compras en cuotas ocupan
   todo su monto; cada cuota se cobra en la facturación de su mes (cierra el día 22).
+- Extracto de Master: los movimientos entre dos fechas, ambas incluidas (por defecto, la última facturación, del 23 al 22).
+  Compras, cargos y cuotas suman; abonos restan; las compras en cuotas van por su monto total. El archivo .xlsx
+  (`excel.js`, sin bibliotecas) trae las hojas Resumen y Movimientos, con autofiltro y un total que respeta el filtro; en
+  el iPhone sale por la hoja de compartir (Guardar en Archivos, abrir en Excel, enviar).
 - LiderBCI: compras − abonos y devoluciones del periodo; puntos 6 % Lider, 0 % Jumbo, Unimarc, Tottus, Santa Isabel, El 9
   y Don Salva, 1 % el resto; «Cerrar periodo» guarda los puntos.
 - Pagos: avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.

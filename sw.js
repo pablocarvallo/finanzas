@@ -1,8 +1,8 @@
 // Finanzas · guarda la app para abrirla sin conexión. Siempre intenta primero la versión más nueva (red primero), así
 // index.html y calculos.js llegan juntos; sin señal usa la copia guardada. Los datos van a domesticas-api (otro
 // origen) y no pasan por aquí.
-const CACHE = 'fin27-v6';
-const ARCHIVOS = ['./', 'index.html', 'calculos.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const CACHE = 'fin27-v7';
+const ARCHIVOS = ['./', 'index.html', 'calculos.js', 'excel.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));
