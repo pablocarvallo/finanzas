@@ -58,7 +58,12 @@ test('extracto: total a pagar con compras de una cuota, cuotas del periodo con s
   assert.equal(ex.cuotas.total, 15000 + 50001 + 103334 + 57980 + 29990);
   assert.equal(ex.total, 4500 + 1500 + ex.cuotas.total + 3490);
   assert.equal(ex.n, 8);
-  assert.equal(ex.cuotas.filas.find((f) => f.id === 'c').tarjeta, 'Adicional');
+  // Las compras en cuotas no son de Titular ni de Adicional, aunque el movimiento traiga la tarjeta
+  assert.equal(ex.cuotas.filas.find((f) => f.id === 'c').tarjeta, '');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', titular: 'Adicional', cuotas: 3 }), '');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', titular: 'Adicional', cuotas: 1 }), 'Adicional');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra' }), 'Titular');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'cuota', titular: 'Titular', cuotas: 2 }), '');
   // Varios meses: cada cuota en su facturación
   const largo = F.extractoMaster(movs, '2026-09-01', '2026-10-31');
   assert.deepEqual(ids(largo.cuotas), ['i:2/6=15000', 'h:1/3=103333', 'i:3/6=15000', 'h:2/3=103333', 'g:1/2=50000']);
@@ -95,7 +100,7 @@ test('Excel: ZIP válido con el extracto en el orden de la app', () => {
   const texto = [...sst.matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((x) => x[1]);
   const pos = (t) => texto.indexOf(t);
   assert.ok(pos('Total a pagar') < pos('Compras Titular') && pos('Compras Titular') < pos('Compras Adicional') && pos('Compras Adicional') < pos('Cuotas del periodo') && pos('Cuotas del periodo') < pos('Cargos'));
-  assert.ok(texto.includes('3/3') && texto.includes('1/12') && texto.includes('Falabella TV · Adicional'));
+  assert.ok(texto.includes('3/3') && texto.includes('1/12') && texto.includes('Falabella TV') && !texto.some((t) => / · Adicional/.test(t)));
   // Total a pagar: suma de los totales de cada bloque (sin abonos), con su valor ya calculado
   assert.match(hoja, new RegExp('<c r="D4" s="9"><f>D6\\+D10\\+D14\\+D22</f><v>' + ex.total + '</v></c>'));
   assert.match(hoja, /<c r="D6" s="10"><f>SUM\(D8:D8\)<\/f><v>4500<\/v><\/c>/);

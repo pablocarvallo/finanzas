@@ -51,6 +51,8 @@ test('Master: utilizado desde el día de partida, cuotas por facturación y cupo
   assert.deepEqual([ant.hechas, ant.pendientes, ant.siguiente], [1, 3, '2026-12']);
   assert.equal(E.master.adicionalMes, 0);
   assert.ok(movsDe(a).some((m) => m.id === 'master|2026-11-23T20:15|15990|FARMACIA' && m.titular === 'Titular'));
+  // Las compras en cuotas y las cuotas anteriores no llevan Titular ni Adicional
+  assert.ok(movsDe(a).filter(F.esCuotas).every((m) => !('titular' in m)));
 });
 
 test('LiderBCI: total del periodo, puntos por comercio y cierre del periodo', () => {

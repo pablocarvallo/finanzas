@@ -599,7 +599,7 @@ function filaMov(m, opts = {}) {
   const det = [];
   det.push(cuando(m.fecha, opts.h || hoy()) + (m.hora ? ', ' + m.hora : ''));
   if (opts.conCuenta) det.push(NOMBRE[m.cuenta]);
-  if (m.cuenta === 'master' && m.titular === 'Adicional') det.push('Adicional');
+  if (F.tarjetaDe(m) === 'Adicional') det.push('Adicional');
   if (m.cuotas > 1) det.push(m.cuotas + ' cuotas');
   if (m.tipo !== 'compra' && m.comercio !== F.NOMBRE_TIPO[m.tipo]) det.push(F.NOMBRE_TIPO[m.tipo]);
   if (m.origen === 'aviso') det.push('aviso');
@@ -812,11 +812,11 @@ function contenidoHoja() {
     html += campo(v.cuenta === 'liderbci' ? 'Comercio' : 'Descripción o comercio', `<input type="text" name="comercio" autocomplete="off" maxlength="60" value="${esc(v.comercio)}" placeholder="${v.tipo === 'deposito' ? 'Ej. Sueldo' : 'Ej. Lider Express'}">`);
     html += `<div class="c-dos-campos">${campo('Fecha', `<input type="date" name="fecha" value="${v.fecha}" max="${h}" required>`)}${campo('Hora (opcional)', `<input type="time" name="hora" value="${v.hora || ''}">`)}</div>`;
     if (v.cuenta === 'master' && (v.tipo === 'compra' || v.tipo === 'cuota')) {
-      html += `<fieldset class="c-campo"><legend>Tarjeta</legend>${chips('titular', [['Titular', 'Titular'], ['Adicional', 'Adicional']], v.titular || 'Titular')}</fieldset>`;
+      // Titular o Adicional solo en las compras a una cuota: las compras en cuotas son una categoría aparte
       const cuotas = `<input type="number" name="cuotas" inputmode="numeric" min="1" max="60" value="${v.cuotas || 1}">`;
       html += v.tipo === 'cuota'
         ? `<div class="c-dos-campos">${campo('Cuotas que faltan', cuotas)}${campo('De un total de', `<input type="number" name="cuotas_total" inputmode="numeric" min="1" max="60" placeholder="Opcional" value="${v.cuotas_total || ''}">`)}</div>`
-        : campo('Cuotas', cuotas);
+        : campo('Cuotas', cuotas) + `<fieldset class="c-campo" data-tarjeta${(parseInt(v.cuotas, 10) || 1) > 1 ? ' hidden' : ''}><legend>Tarjeta</legend>${chips('titular', [['Titular', 'Titular'], ['Adicional', 'Adicional']], v.titular || 'Titular')}</fieldset>`;
     }
     if (v.cuenta === 'liderbci' && v.tipo === 'compra') html += `<p data-nota>Suma ${F.tasaPuntos(v.comercio)} % en puntos.</p>`;
     return html + pie(m ? 'Guardar cambios' : 'Anotar', m ? borrarBtn('movimiento') : '') + '</form>';
@@ -853,7 +853,7 @@ function contenidoHoja() {
       `<div class="c-ext-total d-vidrio"><span>Total a pagar</span><b>${F.pesos(ex.total)}</b></div>` +
       bloque('Total Titular', ex.titular) + bloque('Total Adicional', ex.adicional) +
       bloque('Total cuotas del periodo', ex.cuotas, (x) => fila({ titulo: esc(x.comercio),
-        sub: 'Compra del ' + F.fechaCorta(x.fecha) + (x.tarjeta === 'Adicional' ? ' · Adicional' : ''), valor: `<span class="c-ncuota">${X.numeroCuota(x)}</span>${F.pesos(x.monto)}` }), 'Sin cuotas en estas fechas.') +
+        sub: 'Compra del ' + F.fechaCorta(x.fecha), valor: `<span class="c-ncuota">${X.numeroCuota(x)}</span>${F.pesos(x.monto)}` }), 'Sin cuotas en estas fechas.') +
       (ex.cargos.filas.length ? bloque('Cargos', ex.cargos) : '') +
       (ex.abonos.filas.length ? bloque('Abonos', ex.abonos, (x) => fila({ titulo: esc(x.comercio), sub: F.fechaCorta(x.fecha) + (x.hora ? ', ' + x.hora : ''), valor: `<span class="d-valor--positivo">${F.pesos(x.monto)}</span>` })) +
         '<p>Pagos a la tarjeta en estas fechas; no se restan del total a pagar.</p>' : '') +
@@ -1194,7 +1194,8 @@ const FORMULARIOS = {
     if (cuenta === 'master' && (v.tipo === 'compra' || v.tipo === 'cuota')) {
       const n = parseInt(v.cuotas, 10);
       if (!(n >= 1 && n <= 60)) return errorHoja('Las cuotas van de 1 a 60.');
-      mov.titular = v.titular === 'Adicional' ? 'Adicional' : 'Titular'; mov.cuotas = n;
+      mov.cuotas = n;
+      if (v.tipo === 'compra' && n === 1) mov.titular = v.titular === 'Adicional' ? 'Adicional' : 'Titular'; else delete mov.titular;
       const tot = v.tipo === 'cuota' && String(v.cuotas_total || '').trim() ? parseInt(v.cuotas_total, 10) : 0;
       if (tot && !(tot >= n && tot <= 60)) return errorHoja('El total de cuotas va de ' + n + ' a 60: no puede ser menor que las que faltan.');
       if (tot > n) mov.cuotas_total = tot; else delete mov.cuotas_total;
@@ -1329,6 +1330,8 @@ function alCambiar(ev) {
   const f = ev.target.closest('#hoja form[data-f="mov"]');
   if (!f || !hoja) return;
   if (['cuenta', 'tipo'].includes(ev.target.name) && ev.type === 'change') { hoja.v = valoresMov(f); repintarHoja(); return; }
+  const tarjeta = f.querySelector('[data-tarjeta]');
+  if (tarjeta && ev.target.name === 'cuotas') tarjeta.hidden = (parseInt(ev.target.value, 10) || 1) > 1;
   const nota = f.querySelector('[data-nota]');
   if (nota && ev.target.name === 'comercio') nota.textContent = 'Suma ' + F.tasaPuntos(ev.target.value) + ' % en puntos.';
 }

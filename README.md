@@ -41,7 +41,8 @@ Las de las apps antiguas (pruebas en `pruebas/calculos.test.js`):
 
 - FAN y Copec: saldo ajustado + entradas − salidas desde ese momento. FAN sigue una sola cuenta (su terminación).
 - Master: utilizado de partida + compras, cargos y cuotas por cobrar − abonos, desde ese día. Las compras en cuotas ocupan
-  todo su monto; cada cuota se cobra en la facturación de su mes (cierra el día 22).
+  todo su monto; cada cuota se cobra en la facturación de su mes (cierra el día 22). Titular o Adicional solo en las
+  compras a una cuota: las compras en cuotas son una categoría aparte, sin tarjeta.
 - Extracto de Master entre dos fechas, ambas incluidas (por defecto, la última facturación, del 23 al 22): total a pagar =
   compras Titular + compras Adicional en una cuota + cuotas del periodo + cargos. Las compras en cuotas van por la cuota
   cuya facturación (cierre el día 22 de su mes) cae entre las fechas, con su número (2/3); se buscan en los meses con

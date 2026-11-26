@@ -5,7 +5,7 @@
 // por mes; los avisos del banco y de Copec llegan solos), pagos.json (pagos del mes), mesadas.json (aportes a Piti y
 // Emi) y creditos.json (créditos de consumo, hipotecario y deudas con abonos, de ingreso manual).
 
-export const VERSION = '1.2.1';
+export const VERSION = '1.2.2';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;
@@ -98,6 +98,9 @@ function cuentaVista(c, movs, hoy) {
 export const CIERRE = 22;
 export function proxDe(fecha) { const ym = fecha.slice(0, 7); return +fecha.slice(8, 10) <= CIERRE ? ym : sumarMesesYM(ym, 1); }
 export const esCuotas = (m) => m.tipo === 'cuota' || (m.tipo === 'compra' && (m.cuotas || 1) > 1);
+// Titular o Adicional: solo en las compras de Master a una cuota. Las compras en cuotas son una categoría aparte, sin
+// tarjeta, aunque el aviso del banco o un respaldo antiguo la traiga.
+export const tarjetaDe = (m) => (m.cuenta === 'master' && m.tipo === 'compra' && !esCuotas(m) ? (m.titular === 'Adicional' ? 'Adicional' : 'Titular') : '');
 // «Cuotas por cobrar» (tipo cuota) guarda solo las que faltan; si se anotó de cuántas era la compra (cuotas_total), la
 // numeración sigue la del banco: con 3 en total y 1 que falta, esa es la 3/3.
 export function desfaseCuotas(m) {
@@ -133,8 +136,8 @@ function masterVista(c, movs, hoy) {
     disponible: c.cupo != null && utilizado != null ? c.cupo - utilizado : null, propios,
     cuotas: activas, cuotasPendiente: activas.reduce((s, x) => s + x.e.pendiente, 0),
     gastoMes: sal.reduce((s, m) => s + m.monto, 0),
-    titularMes: sal.filter((m) => m.tipo === 'compra' && m.titular !== 'Adicional').reduce((s, m) => s + m.monto, 0),
-    adicionalMes: sal.filter((m) => m.tipo === 'compra' && m.titular === 'Adicional').reduce((s, m) => s + m.monto, 0),
+    titularMes: sal.filter((m) => tarjetaDe(m) === 'Titular').reduce((s, m) => s + m.monto, 0),
+    adicionalMes: sal.filter((m) => tarjetaDe(m) === 'Adicional').reduce((s, m) => s + m.monto, 0),
     cargosMes: sal.filter((m) => m.tipo !== 'compra').reduce((s, m) => s + m.monto, 0),
     entradasMes: delMes.filter((m) => signo(m) > 0).reduce((s, m) => s + m.monto, 0),
   };
@@ -154,12 +157,12 @@ export function extractoMaster(movs, desde, hasta) {
   const orden = (a, b) => (momento(a) < momento(b) ? -1 : momento(a) > momento(b) ? 1 : String(a.id) < String(b.id) ? -1 : 1);
   const propios = movs.filter((m) => m.cuenta === 'master').sort(orden);
   const fila = (m) => ({ id: m.id, fecha: m.fecha, hora: esHora(m.hora) ? m.hora : '', comercio: m.comercio || NOMBRE_TIPO[m.tipo] || m.tipo, tipo: m.tipo,
-    tarjeta: m.tipo === 'compra' || m.tipo === 'cuota' ? (m.titular === 'Adicional' ? 'Adicional' : 'Titular') : '', monto: m.monto });
+    tarjeta: tarjetaDe(m), monto: m.monto });
   const seccion = () => ({ total: 0, filas: [] });
   const ex = { desde, hasta, titular: seccion(), adicional: seccion(), cuotas: seccion(), cargos: seccion(), abonos: seccion() };
   const poner = (sec, f) => { sec.filas.push(f); sec.total += f.monto; };
   propios.filter((m) => m.fecha >= desde && m.fecha <= hasta && !esCuotas(m)).forEach((m) => {
-    if (m.tipo === 'compra') poner(m.titular === 'Adicional' ? ex.adicional : ex.titular, fila(m));
+    if (m.tipo === 'compra') poner(tarjetaDe(m) === 'Adicional' ? ex.adicional : ex.titular, fila(m));
     else if (signo(m) > 0) poner(ex.abonos, fila(m));
     else poner(ex.cargos, fila(m));
   });
@@ -448,7 +451,7 @@ export function leerRespaldo(texto) {
       const tipo = TIPO[p.type] || 'compra', aviso = p.src === 'mail' && p.key && tipo === 'compra';
       const m = { origen: aviso ? 'aviso' : 'manual', cuenta: 'master', fecha: p.date, hora: esHora(p.time) ? p.time : '', comercio: limpiar(p.desc) || NOMBRE_TIPO[tipo],
         monto: Math.round(+p.amount), tipo, id: aviso ? 'master|' + skel(p.key) : idDe('master-', p.id) };
-      if (tipo === 'compra' || tipo === 'cuota') { m.titular = p.who === 'A' ? 'Adicional' : 'Titular'; m.cuotas = Math.max(1, Math.round(+p.n) || 1); }
+      if (tipo === 'compra' || tipo === 'cuota') { m.cuotas = Math.max(1, Math.round(+p.n) || 1); if (tipo === 'compra' && m.cuotas === 1) m.titular = p.who === 'A' ? 'Adicional' : 'Titular'; }
       if ((tipo === 'cuota' || m.cuotas > 1) && /^\d{4}-\d{2}$/.test(String(p.prox || ''))) m.prox = p.prox;
       if (/^\d{4}$/.test(String(p.card || ''))) m.terminacion = String(p.card);
       return m;

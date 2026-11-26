@@ -171,7 +171,7 @@ export function extractoXlsx(ex, info = {}, ahora = new Date()) {
     filas.push([{ v: titulo, s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, null]);
     filas.push([{ v: conCuota ? 'Fecha compra' : 'Fecha', s: 'negrita' }, { v: 'Comercio', s: 'negrita' }, { v: conCuota ? 'Cuota' : '', s: 'negrita' }, { v: 'Monto', s: 'negritaD' }]);
     const primera = filas.length + 1;
-    sec.filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio + (conCuota && f.tarjeta === 'Adicional' ? ' · Adicional' : ''),
+    sec.filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio,
       conCuota ? numeroCuota(f) : '', { v: f.monto, s: 'monto' }]));
     if (!sec.filas.length) filas.push(['', { v: 'Sin movimientos', s: 'nota' }]);
     const ultima = filas.length;
