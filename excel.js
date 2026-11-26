@@ -1,5 +1,5 @@
 // Finanzas · archivo de Excel (.xlsx) armado aquí mismo, sin bibliotecas, para que funcione sin conexión. Sin pantalla:
-// lo usan la app (extracto de Master) y las pruebas (node --test pruebas/*.test.js).
+// lo usan la app (estado de cuenta de Master) y las pruebas (node --test pruebas/*.test.js).
 // Un .xlsx es un ZIP con unas pocas partes en XML. Se guarda sin comprimir: los extractos son pequeños.
 // Viene de la app Master (pablocarvallo/master), que ya exportaba su extracto así.
 
@@ -150,49 +150,74 @@ export function libro(hojas, ahora = new Date()) {
   return zip(archivos, ahora);
 }
 
-/* ---------- Extracto de Master ---------- */
+/* ---------- Estado de cuenta de Master ---------- */
 const fechaLarga = (k) => fechaCorta(k) + ' ' + k.slice(0, 4);
 const mesAno = (ym) => nombreMes(ym) + ' ' + ym.slice(0, 4);
-export const nombreExtracto = (ex) => 'Extracto Master ' + ex.desde + ' al ' + ex.hasta + '.xlsx';
+export const nombreExtracto = (ex) => 'Estado de cuenta Master ' + ex.mes + (ex.cerrada ? '' : ' en curso') + '.xlsx';
 export const numeroCuota = (f) => f.cuota + '/' + f.de;
-// ex: lo que devuelve extractoMaster de calculos.js. info: { generado (texto), cupo, utilizado, disponible, enCuotas },
-// el estado de la tarjeta al generar el archivo (se omite lo que venga vacío). Una hoja, en el orden de la app: total a
-// pagar, compras Titular, compras Adicional, cuotas del periodo, cargos y abonos, cada bloque con su total (fórmula).
+// ex: lo que devuelve extractoMaster de calculos.js. info: { generado (texto), cupo, utilizado, disponible, enCuotas,
+// titular, adicional (terminaciones) }, el estado de la tarjeta al generar el archivo (se omite lo que venga vacío).
+// Una hoja, como el estado de cuenta del banco: total a pagar, resumen por bloque (saldo anterior, pagos, Titular,
+// Adicional, cuotas, cargos y abonos) y el detalle de cada bloque con su total (fórmula); al final, las compras en
+// cuotas de la facturación, que no se suman.
 export function extractoXlsx(ex, info = {}, ahora = new Date()) {
+  const tT = info.titular ? ' ****' + info.titular : '', tA = info.adicional ? ' ****' + info.adicional : '';
   const filas = [
-    [{ v: 'Master · Extracto de la tarjeta de crédito', s: 'titulo' }],
-    ['Del ' + fechaLarga(ex.desde) + ' al ' + fechaLarga(ex.hasta) + (info.generado ? ' · generado el ' + info.generado : '')],
+    [{ v: 'Master · Estado de cuenta de ' + mesAno(ex.mes), s: 'titulo' }],
+    ['Periodo del ' + fechaLarga(ex.desde) + ' al ' + fechaLarga(ex.hasta) + (ex.cerrada ? ' · pagar hasta el ' + fechaLarga(ex.pagar_hasta) : (ex.estimado ? ' (cierre estimado)' : '') + ' · en curso') +
+      (info.generado ? ' · generado el ' + info.generado : '')],
     [],
   ];
-  const iTotal = filas.push([{ v: 'Total a pagar', s: 'titulo' }, '', '', null]) - 1;
+  const iTotal = filas.push([{ v: ex.cerrada ? 'Monto facturado a pagar' : 'Total a pagar estimado', s: 'titulo' }, '', '', null]) - 1;
+  if (ex.cerrada && ex.minimo) filas.push(['Monto mínimo a pagar', '', '', { v: ex.minimo, s: 'monto' }]);
   filas.push([]);
-  const sumados = [];
-  const bloque = (titulo, sec, conCuota, suma) => {
+  // Resumen: una fila por bloque; los montos se llenan al armar cada bloque
+  filas.push([{ v: 'Resumen', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }]);
+  const iAnterior = filas.push(['Saldo anterior (facturado en ' + mesAno(ex.mesAnterior) + ')', '', '', { v: ex.anterior, s: 'monto' }]) - 1;
+  const resumen = {};
+  const cuantos = (k, uno, varios) => { const n = ex[k].filas.length; return n ? n + ' ' + (n === 1 ? uno : varios) : ''; };
+  [['pagos', 'Pagos', 'pago', 'pagos'], ['titular', 'Compras Titular' + tT, 'compra', 'compras'], ['adicional', 'Compras Adicional' + tA, 'compra', 'compras'],
+    ['cuotas', 'Cuotas', 'cuota', 'cuotas'], ['cargos', 'Cargos y abonos', 'movimiento', 'movimientos']]
+    .forEach(([k, t, uno, varios]) => { resumen[k] = filas.push([t, '', cuantos(k, uno, varios), null]) - 1; });
+  const iDif = ex.diferencia ? filas.push(['Diferencia con el banco', '', '', { v: ex.diferencia, s: 'monto' }]) - 1 : -1;
+  filas.push([]);
+  const sinDetalle = ex.inicial && !ex.conDetalle;
+  const bloque = (k, titulo, cols, celdas) => {
     const cab = filas.length + 1;
     filas.push([{ v: titulo, s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, null]);
-    filas.push([{ v: conCuota ? 'Fecha compra' : 'Fecha', s: 'negrita' }, { v: 'Comercio', s: 'negrita' }, { v: conCuota ? 'Cuota' : '', s: 'negrita' }, { v: 'Monto', s: 'negritaD' }]);
+    filas.push([{ v: 'Fecha', s: 'negrita' }, { v: 'Descripción', s: 'negrita' }, { v: cols, s: 'negrita' }, { v: 'Monto', s: 'negritaD' }]);
     const primera = filas.length + 1;
-    sec.filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio + (f.primera ? ' (primera cuota en ' + mesAno(f.primera) + ')' : ''),
-      conCuota ? numeroCuota(f) : '', { v: f.monto, s: 'monto' }]));
-    if (!sec.filas.length) filas.push(['', { v: 'Sin movimientos', s: 'nota' }]);
+    ex[k].filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio, celdas(f), { v: f.monto, s: 'monto' }]));
+    if (!ex[k].filas.length) filas.push(['', { v: 'Sin movimientos', s: 'nota' }]);
     const ultima = filas.length;
-    filas[cab - 1][3] = sec.filas.length ? { v: sec.total, s: 'encMonto', f: 'SUM(D' + primera + ':D' + ultima + ')' } : { v: 0, s: 'encMonto' };
-    if (suma) sumados.push('D' + cab);
+    filas[cab - 1][3] = ex[k].filas.length ? { v: ex[k].total, s: 'encMonto', f: 'SUM(D' + primera + ':D' + ultima + ')' } : { v: 0, s: 'encMonto' };
+    filas[resumen[k]][3] = { v: ex[k].total, s: 'monto', f: 'D' + cab };
     filas.push([]);
   };
-  bloque('Compras Titular', ex.titular, false, true);
-  bloque('Compras Adicional', ex.adicional, false, true);
-  bloque('Cuotas del periodo', ex.cuotas, true, true);
-  if (ex.cargos.filas.length) bloque('Cargos', ex.cargos, false, true);
-  if (ex.abonos.filas.length) bloque('Abonos (pagos a la tarjeta; no se restan)', ex.abonos, false, false);
+  if (!sinDetalle) {
+    bloque('titular', 'Compras Titular' + tT, '', () => '');
+    bloque('adicional', 'Compras Adicional' + tA, '', () => '');
+    bloque('cuotas', 'Cuotas', 'Cuota', (f) => numeroCuota(f) + (f.montoCompra ? ' de $' + String(f.montoCompra).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''));
+    bloque('cargos', 'Cargos y abonos', 'Tipo', (f) => (f.monto < 0 ? 'Abono' : 'Cargo'));
+    bloque('pagos', 'Pagos', '', () => '');
+  } else Object.keys(resumen).forEach((k) => { filas[resumen[k]][3] = { v: 0, s: 'monto' }; });
+  const sumados = ['D' + (iAnterior + 1)].concat(Object.keys(resumen).map((k) => 'D' + (resumen[k] + 1))).concat(iDif >= 0 ? ['D' + (iDif + 1)] : []);
   filas[iTotal][3] = { v: ex.total, s: 'montoG', f: sumados.join('+') };
-  const estado = [['Cupo', info.cupo], ['Utilizado', info.utilizado], ['Disponible', info.disponible], ['Por cobrar en cuotas', info.enCuotas]]
+  if (ex.nuevas.filas.length) {
+    filas.push([{ v: 'Compras en cuotas de esta facturación (no se suman: se cobran por cuotas)', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }]);
+    filas.push([{ v: 'Fecha', s: 'negrita' }, { v: 'Comercio', s: 'negrita' }, { v: 'Cuotas', s: 'negrita' }, { v: 'Monto compra', s: 'negritaD' }]);
+    ex.nuevas.filas.forEach((f) => filas.push([{ v: fechaExcel(f.fecha), s: 'fecha' }, f.comercio,
+      numeroCuota(f) + ' · ' + f.de + ' × $' + String(f.valor).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' desde ' + nombreMes(f.primera).slice(0, 3) + ' ' + f.primera.slice(0, 4), { v: f.monto, s: 'monto' }]));
+    filas.push([]);
+  }
+  const estado = [['Cupo', info.cupo], ['Cupo utilizado', info.utilizado], ['Disponible', info.disponible], ['Cuotas por facturar', info.enCuotas]]
     .filter(([, v]) => typeof v === 'number' && isFinite(v));
   if (estado.length) {
     filas.push([{ v: 'Estado de la tarjeta al generar', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }, { v: '', s: 'enc' }]);
     estado.forEach(([k, v]) => filas.push([k, '', '', { v, s: 'monto' }]));
     filas.push([]);
   }
-  filas.push([{ v: 'Las compras en cuotas van por la cuota que se factura en el periodo (cierre el día 22); las que empiezan a cobrarse después van con 0 y $0. Los abonos no se restan del total.', s: 'nota' }]);
-  return libro([{ nombre: 'Extracto', filas, anchos: [13, 40, 8, 15] }], ahora);
+  filas.push([{ v: 'Total a pagar = saldo anterior + pagos + compras Titular + compras Adicional + cuotas + cargos y abonos. Pagos y abonos van en negativo.', s: 'nota' }]);
+  filas.push([{ v: 'Las compras en cuotas no son de Titular ni de Adicional: se cobran por cuotas desde la facturación siguiente a la compra.', s: 'nota' }]);
+  return libro([{ nombre: 'Estado de cuenta', filas, anchos: [13, 42, 30, 15] }], ahora);
 }

@@ -32,7 +32,7 @@ test('FAN: saldo desde el ajuste, con la misma clave de los avisos y sin otras c
   assert.equal(a['movimientos/2026-11.json'].find((m) => m.fecha === '2026-11-20').tipo, 'giro');
 });
 
-test('Master: utilizado desde el día de partida, cuotas por facturación y cupo', () => {
+test('Master: respaldo de la app antigua (utilizado desde el día de partida y cupo)', () => {
   const r = F.leerRespaldo(JSON.stringify({ app: 'master', v: 2, tarjeta: { limit: 2000000, desde: '2026-10-01', saldo: 300000 }, movimientos: [
     { id: 'x', type: 'c', date: '2026-09-30', amount: 7000, desc: 'Antes', who: 'T', n: 1 },
     { id: 'y', type: 'c', date: '2026-10-10', amount: 120000, desc: 'TV', who: 'A', n: 6, prox: '2026-10', src: 'manual' },
@@ -45,14 +45,136 @@ test('Master: utilizado desde el día de partida, cuotas por facturación y cupo
   const E = F.estadoCuentas(a['cuentas.json'], movsDe(a), '2026-11-24');
   assert.equal(E.master.utilizado, 300000 + 120000 - 200000 + 3500 + 40000 + 15990);
   assert.equal(E.master.disponible, 2000000 - E.master.utilizado);
-  const tv = E.master.cuotas.find((x) => x.m.comercio === 'TV').e;
-  assert.deepEqual([tv.hechas, tv.pendientes, tv.valor, tv.siguiente], [2, 4, 20000, '2026-12']);   // pasado el 22, ya cerraron octubre y noviembre
-  const ant = E.master.cuotas.find((x) => x.m.tipo === 'cuota').e;
-  assert.deepEqual([ant.hechas, ant.pendientes, ant.siguiente], [1, 3, '2026-12']);
+  assert.equal(E.master.inicio, null);                       // sin estado de cuenta, Master pide empezar con uno
   assert.equal(E.master.adicionalMes, 0);
   assert.ok(movsDe(a).some((m) => m.id === 'master|2026-11-23T20:15|15990|FARMACIA' && m.titular === 'Titular'));
-  // Las compras en cuotas y las cuotas anteriores no llevan Titular ni Adicional
   assert.ok(movsDe(a).filter(F.esCuotas).every((m) => !('titular' in m)));
+  assert.ok(F.avisos(E, F.estadoPagos({}), '2026-11-24').some((x) => x.texto === 'Empieza Master desde el estado de cuenta del banco'));
+});
+
+// Estado de cuenta ficticio con la misma forma que el del banco (A + B + D + E + G)
+const estadoFicticio = () => ({ app: 'master-estado', v: 1, cupo: 1000000,
+  estado: { desde: '2026-10-23', hasta: '2026-11-20', pagar_hasta: '2026-12-07', facturado: 51166, minimo: 9000, utilizado: 241166,
+    anterior: { desde: '2026-09-23', hasta: '2026-10-22', facturado: 300000 },
+    pagos: [['2026-10-30', 'MONTO CANCELADO', -350000]],
+    titular: [['2026-10-24', 'Panadería', 10000], ['2026-11-04', 'Bencina', 20000]],
+    adicional: [['2026-10-29', 'Farmacia', 5000]],
+    cuotas: [['2026-08-14', 'Viaje', 200000, 3, 3, 66666]],
+    cargos: [['2026-11-16', 'Devolución tienda', -1000], ['2026-11-02', 'Impuesto de timbres', 500]],
+    nuevas: [['2026-10-31', 'Tienda', 90000, 3, 30000], ['2026-11-14', 'Colegio', 100000, 3, 33333]] },
+  cuotas: [['2026-10-31', 'Tienda', 90000, 3, '2026-12'], ['2026-11-14', 'Colegio', 100000, 3, '2026-12']] });
+const empezar = () => {
+  const r = F.leerRespaldo(JSON.stringify(estadoFicticio()));
+  assert.ok(!r.error, r.error);
+  return { r, cs: F.aplicar('cuentas.json', null, r.cambios[0].cambio) };
+};
+// Movimientos de la facturación de diciembre (21 nov al 20 dic)
+const movsDic = [
+  { id: 'master|antes', origen: 'aviso', cuenta: 'master', fecha: '2026-11-19', hora: '10:00', comercio: 'Antes del inicio', monto: 999, tipo: 'compra', terminacion: '9908' },
+  { id: 'master|t1', origen: 'aviso', cuenta: 'master', fecha: '2026-11-22', hora: '10:00', comercio: 'Supermercado', monto: 20000, tipo: 'compra', terminacion: '9908' },
+  { id: 'master|a1', origen: 'aviso', cuenta: 'master', fecha: '2026-11-23', hora: '11:00', comercio: 'Cafetería', monto: 7000, tipo: 'compra', terminacion: '4526' },
+  { id: 'master|c1', origen: 'aviso', cuenta: 'master', fecha: '2026-11-25', hora: '12:00', comercio: 'Muebles', monto: 60000, tipo: 'compra', terminacion: '4526', cuotas: 3 },
+  { id: 'master-p1', origen: 'manual', cuenta: 'master', fecha: '2026-12-05', hora: '', comercio: 'Pago estado de cuenta', monto: 51166, tipo: 'pago' },
+  { id: 'master|d1', origen: 'aviso', cuenta: 'master', fecha: '2026-12-06', hora: '09:00', comercio: 'Reversa Cafetería', monto: 2000, tipo: 'devolucion' },
+  { id: 'master-g1', origen: 'manual', cuenta: 'master', fecha: '2026-12-07', hora: '', comercio: 'Impuesto de timbres', monto: 300, tipo: 'cargo' },
+  { id: 'fan|x', origen: 'aviso', cuenta: 'fan', fecha: '2026-12-01', hora: '', comercio: 'Otra cuenta', monto: 5000, tipo: 'compra' },
+];
+
+test('Master: empezar desde el estado de cuenta, que cuadra como el del banco', () => {
+  const { r, cs } = empezar();
+  assert.equal(r.app, 'master-estado');
+  assert.equal(r.cuadra, true);                               // utilizado = facturado + cuotas por facturar
+  const c = F.cuenta(cs, 'master');
+  assert.deepEqual([c.cupo, c.inicio, c.deuda_inicial.monto, c.deuda_inicial.fecha, c.facturaciones.length, c.cuotas.length], [1000000, '2026-11-21', 241166, '2026-11-21', 1, 2]);
+  const ex = F.extractoMaster(c, [], '2026-11-20', '2026-11-26');
+  assert.deepEqual([ex.anterior, ex.pagos.total, ex.titular.total, ex.adicional.total, ex.cuotas.total, ex.cargos.total, ex.total, ex.diferencia],
+    [300000, -350000, 30000, 5000, 66666, -500, 51166, 0]);
+  assert.deepEqual(ex.cuotas.filas.map((x) => x.cuota + '/' + x.de), ['3/3']);
+  assert.deepEqual(ex.cargos.filas.map((x) => x.tipo), ['abono', 'cargo']);   // la devolución es un abono, no un pago
+  assert.deepEqual(ex.nuevas.filas.map((x) => [x.comercio, x.cuota, x.de, x.primera]), [['Tienda', 0, 3, '2026-12'], ['Colegio', 0, 3, '2026-12']]);
+  // Si el detalle no suma el monto facturado, no se acepta
+  const malo = estadoFicticio(); malo.estado.facturado = 51167;
+  assert.match(F.leerRespaldo(JSON.stringify(malo)).error, /suma \$\s51\.166/);
+});
+
+test('Master: facturación en curso con Titular, Adicional, cuotas, cargos y abonos, y pagos aparte', () => {
+  const { cs } = empezar();
+  const E = F.estadoCuentas(cs, movsDic, '2026-12-10'), m = E.master;
+  assert.equal(m.utilizado, 241166 + 20000 + 7000 + 60000 - 51166 - 2000 + 300);
+  assert.equal(m.disponible, 1000000 - m.utilizado);
+  assert.deepEqual([m.enCurso.desde, m.enCurso.hasta, m.enCurso.estimado, m.porCerrar], ['2026-11-21', '2026-12-20', true, false]);
+  assert.deepEqual([m.porPagar.facturado, m.porPagar.pagado, m.porPagar.falta, m.porPagar.pagar_hasta], [51166, 51166, 0, '2026-12-07']);
+  const ex = m.extracto;
+  assert.deepEqual(ex.titular.filas.map((x) => x.id), ['master|t1']);           // la compra anterior al inicio no cuenta
+  assert.deepEqual(ex.adicional.filas.map((x) => x.id), ['master|a1']);
+  assert.deepEqual(ex.cuotas.filas.map((x) => x.comercio + ' ' + x.cuota + '/' + x.de + ' ' + x.monto), ['Tienda 1/3 30000', 'Colegio 1/3 33333']);
+  assert.deepEqual(ex.cargos.filas.map((x) => x.tipo + ' ' + x.monto), ['abono -2000', 'cargo 300']);
+  assert.deepEqual(ex.pagos.filas.map((x) => x.monto), [-51166]);
+  assert.equal(ex.anterior, 51166);
+  assert.equal(ex.total, 51166 - 51166 + 20000 + 7000 + 63333 - 1700);
+  // La compra en cuotas del 25 nov no es de Titular ni de Adicional: empieza a cobrarse en enero
+  assert.deepEqual(ex.nuevas.filas.map((x) => [x.comercio, x.cuota, x.primera, x.valor]), [['Muebles', 0, '2027-01', 20000]]);
+  assert.equal(F.tarjetaDe(movsDic[3], F.cuenta(cs, 'master')), '');
+  assert.equal(m.cuotasPendiente, 90000 + 100000 + 60000);
+  assert.deepEqual(m.cuotas.map((x) => x.q.comercio + ' ' + x.siguiente + '/' + x.q.n + ' ' + x.mesSiguiente), ['Tienda 1/3 2026-12', 'Colegio 1/3 2026-12', 'Muebles 1/3 2027-01']);
+  assert.equal(m.titularMes, 0);
+  assert.equal(m.gastoMes, 300);                                 // en diciembre solo el cargo; el pago y el abono entran
+});
+
+test('Master: cerrar con el estado de cuenta, diferencia con el banco y reabrir', () => {
+  let { cs } = empezar();
+  const h = '2026-12-22', c0 = F.cuenta(cs, 'master');
+  // El banco cerró el 18 dic e incluyó un cargo de $100 que no se anotó
+  const ex0 = F.extractoMaster(Object.assign({}, c0, { proximo_cierre: '2026-12-18' }), movsDic, '2026-12-18', h);
+  const uti = F.utilizadoAl(c0, movsDic, '2026-12-18');
+  cs = F.aplicar('cuentas.json', cs, { id: 'k1', tipo: 'cerrarFacturacion', fact: { mes: '2026-12', desde: '2026-11-21', hasta: '2026-12-18', pagar_hasta: '2027-01-05', facturado: ex0.calculado + 100, utilizado: uti + 100, calculado: ex0.calculado } });
+  const c = F.cuenta(cs, 'master');
+  assert.deepEqual(c.deuda_inicial, { monto: uti + 100, fecha: '2026-12-19' });
+  const dic = F.extractoMaster(c, movsDic, '2026-12-18', h);
+  assert.deepEqual([dic.cerrada, dic.total, dic.diferencia], [true, ex0.calculado + 100, 100]);
+  const m = F.estadoCuentas(cs, movsDic, h).master;
+  assert.deepEqual([m.enCurso.desde, m.enCurso.hasta, m.porPagar.facturado, m.porPagar.falta], ['2026-12-19', '2027-01-18', ex0.calculado + 100, ex0.calculado + 100]);
+  assert.deepEqual(m.extracto.cuotas.filas.map((x) => x.comercio + ' ' + x.cuota + '/' + x.de), ['Tienda 2/3', 'Colegio 2/3', 'Muebles 1/3']);
+  assert.equal(m.extracto.anterior, ex0.calculado + 100);
+  assert.equal(m.cuotasPendiente, 2 * 30000 + (33333 + 33334) + 60000);   // Tienda y Colegio 2 y 3 (la última ajusta), Muebles entera
+  assert.ok(F.avisos(F.estadoCuentas(cs, movsDic, '2026-12-30'), F.estadoPagos({}), '2026-12-30').some((x) => /^Pagar Master hasta el 5 ene/.test(x.texto)));
+  // Reabrir: vuelve la partida anterior y el cierre queda como próximo cierre
+  cs = F.aplicar('cuentas.json', cs, { id: 'k2', tipo: 'reabrirFacturacion', hasta: '2026-12-18' });
+  const c2 = F.cuenta(cs, 'master');
+  assert.deepEqual([c2.facturaciones.length, c2.deuda_inicial.monto, c2.proximo_cierre], [1, 241166, '2026-12-18']);
+  // El estado de cuenta con que se empezó no se puede reabrir
+  cs = F.aplicar('cuentas.json', cs, { id: 'k3', tipo: 'reabrirFacturacion', hasta: '2026-11-20' });
+  assert.equal(F.cuenta(cs, 'master').facturaciones.length, 1);
+  // El respaldo de la app Master antigua no reemplaza el inicio
+  cs = F.aplicar('cuentas.json', cs, { id: 'k4', tipo: 'ajustesCuenta', cuenta: 'master', soloSinInicio: true, valores: { deuda_inicial: { monto: 1, fecha: '2026-01-01' }, cupo: 5 } });
+  assert.equal(F.cuenta(cs, 'master').cupo, 1000000);
+});
+
+test('Master: cuotas como el banco, primera cuota y cierres estimados', () => {
+  assert.deepEqual([1, 2, 3].map((k) => F.valorCuota({ monto: 200000, n: 3 }, k)), [66667, 66667, 66666]);
+  assert.deepEqual([1, 3].map((k) => F.valorCuota({ monto: 88004, n: 3 }, k)), [29335, 29334]);
+  assert.equal(F.valorCuota({ monto: 498460, n: 6, valor: 86326 }, 6), 86326);           // con interés: el valor anotado
+  const { cs } = empezar(), c = F.cuenta(cs, 'master');
+  // La facturación de una fecha y la primera cuota por omisión (la siguiente)
+  assert.deepEqual(['2026-11-20', '2026-11-21', '2026-12-20', '2026-12-21'].map((d) => F.mesDeFacturacion(c, d)), ['2026-11', '2026-12', '2026-12', '2027-01']);
+  assert.equal(F.primeraPorDefecto(c, '2026-12-21'), '2027-02');
+  // Una compra en cuotas con la primera cuota elegida por el usuario
+  const q = F.comprasEnCuotas(c, [{ id: 'x', cuenta: 'master', fecha: '2026-11-22', comercio: 'X', monto: 30000, tipo: 'compra', cuotas: 3, primera: '2026-12' }]).find((y) => y.id === 'x');
+  assert.equal(q.primera, '2026-12');
+  // La versión anterior guardaba «prox» con la facturación de la compra: se usa la siguiente
+  const v = F.comprasEnCuotas(c, [{ id: 'y', cuenta: 'master', fecha: '2026-11-22', comercio: 'Y', monto: 30000, tipo: 'compra', cuotas: 3, prox: '2026-11' }]).find((y) => y.id === 'y');
+  assert.equal(v.primera, '2027-01');
+  // Cierre estimado el mismo día del último cierre; con un próximo cierre indicado, ese
+  const l = F.facturaciones(Object.assign({}, c, { proximo_cierre: '2026-12-22' }), '2027-03-01');
+  assert.deepEqual(l.map((p) => p.desde + '…' + p.hasta), ['2026-10-23…2026-11-20', '2026-11-21…2026-12-22', '2026-12-23…2027-01-20', '2027-01-21…2027-02-20', '2027-02-21…2027-03-20']);
+  assert.equal(F.mismoDia('2027-01-31', 1, 31), '2027-02-28');
+  // Titular o Adicional: lo elegido o la terminación del aviso; nunca en una compra en cuotas
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', terminacion: '4526' }, c), 'Adicional');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', terminacion: '4526', titular: 'Titular' }, c), 'Titular');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra' }, c), 'Titular');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', titular: 'Adicional', cuotas: 3 }, c), '');
+  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'pago' }, c), '');
+  assert.equal(F.signo({ tipo: 'pago' }), 1);
 });
 
 test('LiderBCI: total del periodo, puntos por comercio y cierre del periodo', () => {

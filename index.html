@@ -394,6 +394,11 @@ body.en-maletas .c-desvanecer { display: none; }
 .c-hija { padding: 14px; display: flex; flex-direction: column; gap: 2px; }
 .c-subtitulo { margin: 0; font: 600 17px/22px var(--font-sans); color: var(--tinta-2); }
 .c-ajustar .d-texto strong { white-space: normal; }
+/* Master: total de la facturación y selector de facturaciones en la hoja del estado de cuenta */
+.c-fila-total .d-texto strong, .c-fila-total .d-valor { font-weight: 700; }
+.c-fila-total .d-valor { font-size: 19px; }
+.c-hoja .c-segmentos--hoja { margin: 10px 0 4px; }
+.c-hoja .c-ext-cab b .d-valor--positivo { color: var(--positivo); }
 /*APP:END*/
 </style>
 </head>
@@ -471,9 +476,6 @@ let hoja = null;
 const hoy = () => F.diaDe(new Date());
 const ahoraHM = () => F.horaDe(new Date());
 const fechaLarga = (k) => F.fechaCorta(k) + ' ' + k.slice(0, 4);
-let ultExtracto = null;                     // fechas del último extracto, mientras la app siga abierta
-let carpetaMov = null;                      // meses con movimientos en GitHub, para el extracto ({ meses, at })
-const mesesLeidos = new Set();              // meses leídos para el extracto en esta sesión
 function vista(archivo) {
   let d = srv[archivo] && srv[archivo].contenido != null ? srv[archivo].contenido : F.plantilla(archivo);
   for (const p of cola) if (p.archivo === archivo) d = F.aplicar(archivo, d, p.cambio);
@@ -600,9 +602,10 @@ function filaMov(m, opts = {}) {
   const det = [];
   det.push(cuando(m.fecha, opts.h || hoy()) + (m.hora ? ', ' + m.hora : ''));
   if (opts.conCuenta) det.push(NOMBRE[m.cuenta]);
-  if (F.tarjetaDe(m) === 'Adicional') det.push('Adicional');
-  if (m.cuotas > 1) det.push(m.cuotas + ' cuotas');
-  if (m.tipo !== 'compra' && m.comercio !== F.NOMBRE_TIPO[m.tipo]) det.push(F.NOMBRE_TIPO[m.tipo]);
+  const tj = F.tarjetaDe(m, opts.master);
+  if (tj === 'Adicional' || (tj && opts.master)) det.push(tj);
+  if (m.cuenta === 'master' && F.esCuotas(m)) det.push((m.cuotas || 1) + ' cuotas');
+  if (m.tipo !== 'compra' && m.comercio !== F.NOMBRE_TIPO[m.tipo]) det.push(m.cuenta === 'master' && m.tipo === 'devolucion' ? 'Abono' : F.NOMBRE_TIPO[m.tipo]);
   if (m.origen === 'aviso') det.push('aviso');
   return fila({ icono: opts.conCuenta ? ICONO_CUENTA[m.cuenta] : F.signo(m) > 0 ? 'entra' : ICONO_CUENTA[m.cuenta], titulo: esc(m.comercio || F.NOMBRE_TIPO[m.tipo]), sub: esc(det.join(' · ')) + (opts.antes ? ' · antes del saldo' : ''),
     valor: `<span class="${F.signo(m) > 0 ? 'd-valor--positivo' : ''}">${montoTxt(m)}</span>`, a: 'hoja', attrs: `data-h="mov" data-id="${esc(m.id)}"`, cls: opts.antes ? 'c-antes' : '' });
@@ -626,7 +629,7 @@ function tarjetaCuenta(id, e) {
   if (id === 'master') {
     etiqueta = 'Disponible'; cifra = e.disponible != null ? F.pesos(e.disponible) : 'Sin definir';
     if (e.cupo && e.utilizado != null) barra = `<div class="c-barra-cupo"><i style="width:${Math.round(Math.max(0, Math.min(1, e.utilizado / e.cupo)) * 100)}%"></i></div>`;
-    detalle = e.definida ? 'Utilizado ' + F.pesos(e.utilizado) : 'Trae el respaldo de Master';
+    detalle = !e.inicio ? 'Empieza con el estado de cuenta' : e.porPagar.falta > 0 ? 'Pagar ' + F.pesos(e.porPagar.falta) + ' al ' + F.fechaCorta(e.porPagar.pagar_hasta) : 'Utilizado ' + F.pesos(e.utilizado);
   } else if (id === 'liderbci') {
     etiqueta = 'Por pagar'; cifra = F.pesos(e.total); detalle = F.miles(e.puntos) + ' puntos';
   } else {
@@ -661,6 +664,7 @@ function vistaCuentas() {
   const D = datos(), id = ui.cuenta, e = D.E[id], h = D.h, ym = h.slice(0, 7);
   const segs = F.ORDEN.map((c) => `<button data-a="cuenta" data-c="${c}" aria-pressed="${id === c}">${NOMBRE[c]}</button>`).join('');
   let html = `<div class="d-segmentos c-segmentos" role="group" aria-label="Cuenta">${segs}</div>`;
+  if (id === 'master') return html + vistaMaster(D) + estadoSync();
   const acciones = [];
   if (id === 'fan' || id === 'copec') {
     html += e.definida
@@ -668,24 +672,14 @@ function vistaCuentas() {
       : heroe('Saldo', 'Sin definir', [['Cómo empezar', 'Trae su respaldo o ajusta el saldo']], null, true);
     if (e.definida && e.saldo < 0) html += '<p class="c-texto c-texto--alerta">El saldo calculado quedó bajo cero. Revisa si falta un depósito o ajusta el saldo.</p>';
     acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="${id}">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="ajustar">Ajustar saldo</button>`);
-  } else if (id === 'master') {
-    html += e.definida
-      ? heroe('Disponible', e.disponible != null ? F.pesos(e.disponible) : F.pesos(-e.utilizado), [['Utilizado', F.pesos(e.utilizado)], ['Cupo', e.cupo ? F.pesos(e.cupo) : 'Sin dato'], ['En cuotas', F.pesos(e.cuotasPendiente)]], e.cupo ? e.utilizado / e.cupo : null)
-      : heroe('Disponible', 'Sin definir', [['Cómo empezar', 'Trae su respaldo o ajusta el utilizado']], null, true);
-    acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="master">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="ajustar">Ajustar</button>`,
-      `<button class="d-boton d-boton--discreto c-boton-ancho c-con-ico" data-a="hoja" data-h="extracto">${ico('doc', 18)}Generar extracto</button>`);
   } else {
     html += heroe('Por pagar en el periodo', F.pesos(e.total), [['Compras', F.pesos(e.compras)], ['Abonos', F.pesos(e.abonos)], ['Puntos', F.miles(e.puntos), 'data-a="hoja" data-h="detalle-puntos" aria-label="Puntos: ' + F.miles(e.puntos) + '. Ver el detalle"']]);
     acciones.push(`<button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="liderbci">Anotar</button>`, `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="cerrar-periodo">Cerrar periodo</button>`);
   }
   html += `<div class="c-acciones">${acciones.join('')}</div>`;
-  if (id === 'master' && e.cuotas.length) {
-    html += seccion('Cuotas por cobrar') + '<ul class="d-lista d-vidrio">' + e.cuotas.map(({ m, e: q }) =>
-      fila({ icono: 'tarjeta', titulo: esc(m.comercio), sub: 'Cuota ' + (q.desfase + q.hechas + 1) + ' de ' + q.de + ' en ' + ymTxt(q.siguiente) + ' · última en ' + ymTxt(q.ultima), valor: F.pesos(q.valorSiguiente) + `<small>quedan ${F.pesos(q.pendiente)}</small>`, a: 'hoja', attrs: `data-h="mov" data-id="${esc(m.id)}"` })).join('') + '</ul>';
-  }
   // Movimientos por mes, del más nuevo al más antiguo
   const meses = mesesNecesarios().slice().reverse();
-  const antes = (m) => (id === 'fan' || id === 'copec') ? e.desde && F.momento(m) < e.desde : id === 'master' ? e.desde && m.fecha < e.desde : e.desde && m.fecha < e.desde;
+  const antes = (m) => (id === 'fan' || id === 'copec') ? e.desde && F.momento(m) < e.desde : e.desde && m.fecha < e.desde;
   meses.forEach((mm) => {
     const ms = e.propios.filter((m) => F.mesDe(m) === mm).sort((a, b) => (F.momento(a) < F.momento(b) ? 1 : -1));
     if (!ms.length && mm !== h.slice(0, 7)) return;
@@ -695,6 +689,74 @@ function vistaCuentas() {
   });
   html += `<div class="c-acciones"><button class="d-boton d-boton--discreto" data-a="mes-anterior">Ver ${F.nombreMes(F.sumarMesesYM(meses[meses.length - 1], -1))}</button></div>`;
   return html + estadoSync();
+}
+
+/* ---------- Master ---------- */
+// Igual que el estado de cuenta del banco: lo que hay que pagar del último estado de cuenta, la facturación en curso
+// por bloques (saldo anterior, pagos, Titular, Adicional, cuotas, cargos y abonos), las compras en cuotas y los
+// movimientos de cada facturación.
+const mesAno = (ym) => F.nombreMes(ym) + ' ' + ym.slice(0, 4);
+const negVerde = (n) => `<span class="${n < 0 ? 'd-valor--positivo' : ''}">${F.pesos(n)}</span>`;
+function ayudaPrimera(fact, base, elegido) {
+  return elegido === base ? 'La compra entra en la facturación de ' + F.nombreMes(fact) + '; el banco cobra la primera cuota en la siguiente.'
+    : elegido === fact ? 'La primera cuota se cobra en la misma facturación de la compra.' : 'Hasta ' + F.nombreMes(elegido) + ' no se cobra ninguna cuota.';
+}
+function bloquesResumen(ex, c, attrs) {
+  const cuenta = (s, uno, varios) => s.filas.length + ' ' + F.plural(s.filas.length, uno, varios);
+  const abonos = ex.cargos.filas.filter((x) => x.monto < 0).length, cargos = ex.cargos.filas.length - abonos;
+  const tT = F.terminacionDe(c, 'T'), tA = F.terminacionDe(c, 'A');
+  const r = (titulo, sub, monto) => fila({ titulo, sub, valor: negVerde(monto), a: attrs ? 'hoja' : '', attrs: attrs || '' });
+  return r('Saldo anterior', 'Facturado en ' + mesAno(ex.mesAnterior), ex.anterior) +
+    r('Pagos', ex.pagos.filas.length ? cuenta(ex.pagos, 'pago', 'pagos') : 'Sin pagos', ex.pagos.total) +
+    r('Compras Titular', (tT ? '****' + tT + ' · ' : '') + cuenta(ex.titular, 'compra', 'compras'), ex.titular.total) +
+    r('Compras Adicional', (tA ? '****' + tA + ' · ' : '') + cuenta(ex.adicional, 'compra', 'compras'), ex.adicional.total) +
+    r('Cuotas', ex.cuotas.filas.length ? cuenta(ex.cuotas, 'cuota', 'cuotas') + ' de compras en cuotas' : 'Sin cuotas', ex.cuotas.total) +
+    r('Cargos y abonos', cargos + ' ' + F.plural(cargos, 'cargo', 'cargos') + ' · ' + abonos + ' ' + F.plural(abonos, 'abono', 'abonos'), ex.cargos.total) +
+    (ex.diferencia ? r('Diferencia con el banco', 'Lo que no cuadra con los movimientos anotados', ex.diferencia) : '');
+}
+function vistaMaster(D) {
+  const e = D.E.master, h = D.h, c = F.cuenta(D.cuentas, 'master') || {};
+  if (!e.inicio) {
+    let html = heroe('Disponible', e.disponible != null ? F.pesos(e.disponible) : 'Sin definir', e.definida ? [['Utilizado', F.pesos(e.utilizado)], ['Cupo', e.cupo ? F.pesos(e.cupo) : 'Sin dato']] : [],
+      e.cupo && e.utilizado != null ? e.utilizado / e.cupo : null, e.disponible == null);
+    html += '<p class="c-texto">Master se lleva igual que el estado de cuenta del banco, por facturaciones. Para empezar, carga el último estado de cuenta: desde ahí cuadran el total a pagar, las cuotas y el disponible. Los movimientos anteriores a su cierre no se usan.</p>';
+    return html + '<div class="c-acciones"><button class="d-boton c-boton-ancho" data-a="hoja" data-h="master-inicio">Empezar desde el estado de cuenta</button></div>';
+  }
+  const P = e.porPagar, A = e.enCurso, ex = e.extracto;
+  let html = heroe('Disponible', F.pesos(e.disponible), [['Utilizado', F.pesos(e.utilizado)], ['Cupo', F.pesos(e.cupo)], ['En cuotas', F.pesos(e.cuotasPendiente)]], e.cupo ? e.utilizado / e.cupo : null);
+  // Por pagar: el último estado de cuenta, menos lo pagado después de su cierre
+  html += seccion('Por pagar') + '<ul class="d-lista d-vidrio">' + fila({ icono: 'doc', titulo: P.falta > 0 ? 'Pagar hasta el ' + F.fechaCorta(P.pagar_hasta) : 'Estado de cuenta de ' + F.nombreMes(P.mes),
+    sub: (P.falta > 0 ? 'Estado de cuenta de ' + F.nombreMes(P.mes) + ' · ' : '') + (P.pagado ? 'pagado ' + F.pesos(P.pagado) + ' de ' + F.pesos(P.facturado) : 'facturado ' + F.pesos(P.facturado)),
+    valor: P.falta > 0 ? F.pesos(P.falta) : '<span class="d-chip d-chip--positivo">Pagado</span>', a: 'hoja', attrs: `data-h="extracto" data-f="${P.hasta}"`, chev: true, cls: 'c-ajustar' }) + '</ul>';
+  if (P.falta > 0) html += `<p class="c-nota">${P.minimo && !P.pagado ? 'Mínimo ' + F.pesos(P.minimo) + '. ' : ''}Cuando pagues, anótalo como «Pago» en Master.</p>`;
+  // Facturación en curso, por bloques como el estado de cuenta
+  html += seccion((e.porCerrar ? 'Por cerrar: ' : 'En curso: ') + F.nombreMes(A.mes), `<span class="c-seccion-nota">${F.fechaCorta(A.desde)} al ${F.fechaCorta(A.hasta)}</span>`);
+  if (e.porCerrar) html += `<p class="c-texto" style="margin:0 20px 10px">El cierre ${A.estimado ? 'estimado ' : ''}fue el ${F.fechaCorta(A.hasta)}. Cuando llegue el estado de cuenta del banco, cierra la facturación con sus cifras.</p>`;
+  const ver = `data-h="extracto" data-f="${A.hasta}"`;
+  html += '<ul class="d-lista d-vidrio">' + bloquesResumen(ex, c, ver) +
+    `<li class="c-fila-total"><button class="d-fila c-fila" data-a="hoja" ${ver}><span class="d-texto"><strong>Total ${A.estimado ? 'estimado' : 'a pagar'}</strong><span>Cierra el ${F.fechaCorta(A.hasta)}${A.estimado ? ' (estimado)' : ''}</span></span><span class="d-valor">${F.pesos(ex.total)}</span><span class="c-chev">${ico('chev', 18)}</span></button></li></ul>`;
+  html += '<div class="c-acciones"><button class="d-boton" data-a="hoja" data-h="mov" data-cuenta="master">Anotar</button>' +
+    `<button class="d-boton d-boton--discreto c-con-ico" data-a="hoja" ${ver}>${ico('doc', 18)}Extracto</button>` +
+    `<button class="d-boton d-boton--discreto c-boton-ancho" data-a="hoja" data-h="cerrar-fact">Cerrar ${F.nombreMes(A.mes)} con el estado de cuenta</button></div>`;
+  // Compras en cuotas con cuotas por facturar
+  html += seccion('Compras en cuotas', '<a href="#" data-a="hoja" data-h="cuota-inicial">Agregar</a>');
+  html += e.cuotas.length ? '<ul class="d-lista d-vidrio">' + e.cuotas.map(({ q, siguiente, mesSiguiente, mesUltima, valorSiguiente, pendiente }) =>
+    fila({ icono: 'tarjeta', titulo: esc(q.comercio), sub: 'Cuota ' + siguiente + ' de ' + q.n + ' en ' + ymTxt(mesSiguiente) + (q.n > siguiente ? ' · última en ' + ymTxt(mesUltima) : ''),
+      valor: F.pesos(valorSiguiente) + `<small>quedan ${F.pesos(pendiente)}</small>`, a: 'hoja', attrs: q.origen === 'inicial' ? `data-h="cuota-inicial" data-id="${esc(q.id)}"` : `data-h="mov" data-id="${esc(q.id)}"` })).join('') + '</ul>'
+    : '<p class="c-texto">Sin compras en cuotas por cobrar.</p>';
+  // Movimientos de cada facturación desde el inicio, de la más nueva a la más antigua
+  const movs = F.movsMaster(c, D.movs), nuevo = (a, b) => (F.momento(a) < F.momento(b) ? 1 : -1);
+  e.lista.filter((p) => !p.inicial).slice().reverse().forEach((p) => {
+    const ms = movs.filter((m) => m.fecha >= p.desde && m.fecha <= p.hasta).sort(nuevo);
+    if (!ms.length && p !== A && p.desde > h) return;
+    html += seccion('Movimientos de ' + F.nombreMes(p.mes), `<span class="c-seccion-nota">${p.cerrada ? 'cerrada' : p === A ? (e.porCerrar ? 'por cerrar' : 'en curso') : 'siguiente'}</span>`);
+    html += ms.length ? '<ul class="d-lista d-vidrio">' + ms.map((m) => filaMov(m, { h, master: c })).join('') + '</ul>' : '<p class="c-texto">Sin movimientos todavía. Las compras llegan solas con los avisos del banco.</p>';
+  });
+  // Estados de cuenta cerrados
+  html += seccion('Estados de cuenta') + '<ul class="d-lista d-vidrio">' + e.lista.filter((p) => p.cerrada).reverse().map((p) =>
+    fila({ icono: 'doc', titulo: cap1(mesAno(p.mes)), sub: 'Del ' + F.fechaCorta(p.desde) + ' al ' + F.fechaCorta(p.hasta) + ' · pagar hasta el ' + F.fechaCorta(p.pagar_hasta), valor: F.pesos(p.facturado),
+      a: 'hoja', attrs: `data-h="extracto" data-f="${p.hasta}"`, chev: true })).join('') + '</ul>';
+  return html + '<div class="c-acciones"><button class="d-boton d-boton--discreto" data-a="hoja" data-h="ajustar">Ajustar cupo o utilizado</button></div>';
 }
 
 /* ---------- Pagos del mes ---------- */
@@ -804,34 +866,41 @@ function contenidoHoja() {
     if (hoja.id && !m) return '<h2>Movimiento no encontrado</h2><div class="c-pila"><button class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
     const v = Object.assign({ cuenta: ui.tab === 'cuentas' ? ui.cuenta : 'fan', tipo: 'compra', fecha: h, hora: ahoraHM(), monto: '', comercio: '', titular: 'Titular', cuotas: 1 }, m || {}, hoja.v || {});
     const tipos = F.TIPOS_DE[v.cuenta];
+    // Master: una devolución es un abono; las «cuotas por cobrar» de la versión anterior son una compra en cuotas
+    if (v.cuenta === 'master' && v.tipo === 'devolucion') v.tipo = 'abono';
+    if (v.cuenta === 'master' && v.tipo === 'cuota') v.tipo = 'compra';
     if (!tipos.includes(v.tipo)) v.tipo = tipos[0];
-    const etqTipo = { compra: 'Compra', giro: 'Giro', deposito: 'Depósito', cargo: 'Cargo', abono: 'Abono', cuota: 'Cuotas por cobrar', devolucion: 'Devolución' };
+    const etqTipo = { compra: 'Compra', giro: 'Giro', deposito: 'Depósito', cargo: 'Cargo', abono: 'Abono', pago: 'Pago', devolucion: 'Devolución' };
     let html = `<form data-f="mov"><h2>${m ? 'Movimiento' : 'Anotar movimiento'}</h2>` + (m && m.origen === 'aviso' ? '<p>Llegó con un aviso del banco o de Copec.</p>' : '');
     if (!m) html += `<fieldset class="c-campo"><legend>Cuenta</legend>${chips('cuenta', F.ORDEN.map((c) => [c, NOMBRE[c]]), v.cuenta)}</fieldset>`;
     html += `<fieldset class="c-campo"><legend>Tipo</legend>${chips('tipo', tipos.map((x) => [x, etqTipo[x]]), v.tipo)}</fieldset>`;
     html += campoMonto('monto', 'Monto', v.monto);
     html += campo(v.cuenta === 'liderbci' ? 'Comercio' : 'Descripción o comercio', `<input type="text" name="comercio" autocomplete="off" maxlength="60" value="${esc(v.comercio)}" placeholder="${v.tipo === 'deposito' ? 'Ej. Sueldo' : 'Ej. Lider Express'}">`);
     html += `<div class="c-dos-campos">${campo('Fecha', `<input type="date" name="fecha" value="${v.fecha}" max="${h}" required>`)}${campo('Hora (opcional)', `<input type="time" name="hora" value="${v.hora || ''}">`)}</div>`;
-    if (v.cuenta === 'master' && (v.tipo === 'compra' || v.tipo === 'cuota')) {
-      // Titular o Adicional solo en las compras a una cuota: las compras en cuotas son una categoría aparte. En cuotas, se
-      // elige en qué facturación se cobra la primera: la de la fecha (cierra el día 22) o una de las tres siguientes.
-      const cuotas = `<input type="number" name="cuotas" inputmode="numeric" min="1" max="60" value="${v.cuotas || 1}">`;
-      const enCuotas = v.tipo === 'cuota' || (parseInt(v.cuotas, 10) || 1) > 1;
-      const base = F.proxDe(F.esFecha(v.fecha) ? v.fecha : h), meses = [0, 1, 2, 3].map((i) => F.sumarMesesYM(base, i));
-      const elegido = /^\d{4}-\d{2}$/.test(String(v.prox || '')) && meses.includes(v.prox) ? v.prox : base;
-      const primera = `<fieldset class="c-campo" data-primera="${base}"${enCuotas ? '' : ' hidden'}><legend>Primera cuota en la facturación de</legend>` +
-        chips('prox', meses.map((ym) => [ym, F.nombreMes(ym).charAt(0).toUpperCase() + F.nombreMes(ym).slice(1) + (ym.slice(0, 4) !== base.slice(0, 4) ? ' ' + ym.slice(0, 4) : '')]), elegido) +
-        `<p class="c-ayuda">${elegido === base ? 'La de la fecha: cierra el ' + F.CIERRE + ' de ' + F.nombreMes(base) + '.' : 'Hasta entonces no se cobra ninguna cuota.'}</p></fieldset>`;
-      html += v.tipo === 'cuota'
-        ? `<div class="c-dos-campos">${campo('Cuotas que faltan', cuotas)}${campo('De un total de', `<input type="number" name="cuotas_total" inputmode="numeric" min="1" max="60" placeholder="Opcional" value="${v.cuotas_total || ''}">`)}</div>` + primera
-        : campo('Cuotas', cuotas) + primera + `<fieldset class="c-campo" data-tarjeta${enCuotas ? ' hidden' : ''}><legend>Tarjeta</legend>${chips('titular', [['Titular', 'Titular'], ['Adicional', 'Adicional']], v.titular || 'Titular')}</fieldset>`;
+    if (v.cuenta === 'master') {
+      const c = F.cuenta(D.cuentas, 'master') || {};
+      if (v.tipo === 'compra') {
+        // Titular o Adicional solo en las compras a una cuota: las compras en cuotas son una categoría aparte. En cuotas,
+        // la primera se cobra en la facturación siguiente a la de la compra (lo que hace el banco), salvo que se elija otra.
+        const n = parseInt(v.cuotas, 10) || 1, enCuotas = n > 1, tT = F.terminacionDe(c, 'T'), tA = F.terminacionDe(c, 'A');
+        const tarjeta = hoja.v && hoja.v.titular ? hoja.v.titular : (m && F.tarjetaDe(m, c)) || (v.titular === 'Adicional' ? 'Adicional' : 'Titular');
+        const fact = F.mesDeFacturacion(c, F.esFecha(v.fecha) ? v.fecha : h), base = F.sumarMesesYM(fact, 1), meses = [0, 1, 2, 3].map((i) => F.sumarMesesYM(fact, i));
+        const elegido = meses.includes(v.primera) ? v.primera : base;
+        html += campo('Cuotas', `<input type="number" name="cuotas" inputmode="numeric" min="1" max="60" value="${v.cuotas || 1}">`);
+        html += `<fieldset class="c-campo" data-tarjeta${enCuotas ? ' hidden' : ''}><legend>Tarjeta</legend>${chips('titular', [['Titular', 'Titular' + (tT ? ' ****' + tT : '')], ['Adicional', 'Adicional' + (tA ? ' ****' + tA : '')]], tarjeta)}</fieldset>`;
+        html += `<div data-encuotas${enCuotas ? '' : ' hidden'}><fieldset class="c-campo" data-primera="${base}" data-fact="${fact}"><legend>Primera cuota en la facturación de</legend>` +
+          chips('primera', meses.map((ym) => [ym, cap1(F.nombreMes(ym)) + (ym.slice(0, 4) !== fact.slice(0, 4) ? ' ' + ym.slice(0, 4) : '')]), elegido) +
+          `<p class="c-ayuda">${ayudaPrimera(fact, base, elegido)}</p></fieldset>` +
+          campo('Valor de la cuota (opcional)', `<div class="c-prefijo"><b>$</b><input type="text" name="valor_cuota" inputmode="numeric" autocomplete="off" placeholder="Solo si tiene interés" value="${v.valor_cuota ? F.miles(v.valor_cuota) : ''}"></div>`) +
+          '<p class="c-ayuda" style="margin:8px 4px 0">Una compra en cuotas no es de Titular ni de Adicional: va en «Cuotas», una por facturación.</p></div>';
+      } else html += `<p class="c-ayuda" style="margin:10px 4px 0">${{ pago: 'Pago de la tarjeta, por ejemplo el del estado de cuenta. Baja lo que falta por pagar y libera cupo.', abono: 'Devolución o reversa de una compra. No es un pago: va en «Cargos y abonos» y resta.', cargo: 'Comisión, impuesto, interés o seguro: va en «Cargos y abonos».' }[v.tipo] || ''}</p>`;
     }
     if (v.cuenta === 'liderbci' && v.tipo === 'compra') html += `<p data-nota>Suma ${F.tasaPuntos(v.comercio)} % en puntos.</p>`;
     return html + pie(m ? 'Guardar cambios' : 'Anotar', m ? borrarBtn('movimiento') : '') + '</form>';
   }
   if (t === 'ajustar') {
     const id = ui.cuenta, c = F.cuenta(D.cuentas, id) || {}, e = D.E[id];
-    if (id === 'master') return `<form data-f="ajustar"><h2>Ajustar Master</h2><p>Escribe el utilizado y el cupo que muestra hoy el banco. Desde hoy, las compras, cargos y abonos lo van cambiando.</p>` +
+    if (id === 'master') return `<form data-f="ajustar"><h2>Ajustar Master</h2><p>Escribe el cupo utilizado y el cupo total que muestra hoy el banco. Desde hoy, las compras, cargos, abonos y pagos lo van cambiando. No cambia las facturaciones ni el total a pagar: eso se corrige al cerrar cada facturación con el estado de cuenta.</p>` +
       campoMonto('monto', 'Utilizado hoy', e.utilizado != null ? e.utilizado : '') + campoMonto('cupo', 'Cupo total', c.cupo || '') + pie('Guardar') + '</form>';
     return `<form data-f="ajustar"><h2>Ajustar saldo de ${NOMBRE[id]}</h2><p>Escribe el saldo que muestra ahora ${id === 'fan' ? 'la app del banco' : 'Copec Pay'}. Desde este momento, las compras lo descuentan y los ${id === 'fan' ? 'depósitos' : 'abonos'} lo suman.</p>` +
       campoMonto('monto', 'Saldo ahora', e.definida ? e.saldo : '') + pie('Guardar saldo') + '</form>';
@@ -842,30 +911,83 @@ function contenidoHoja() {
       campo('Inicio del periodo nuevo', `<input type="date" name="desde" value="${h}" required>`) + pie('Cerrar periodo') + '</form>';
   }
   if (t === 'extracto') {
-    const p = ultExtracto || F.periodoExtracto(h);
-    return `<form data-f="extracto"><h2>Extracto de Master</h2><p>Elige desde y hasta qué día, ambos incluidos. Parte con la última facturación, que cierra cerca del día ${F.CIERRE}.</p>` +
-      `<div class="c-dos-campos">${campo('Desde', `<input type="date" name="desde" value="${p.desde}" max="${h}" required>`)}${campo('Hasta', `<input type="date" name="hasta" value="${p.hasta}" required>`)}</div>` +
-      pie('Generar extracto') + '</form>';
+    const e = D.E.master, c = F.cuenta(D.cuentas, 'master') || {};
+    const cerrarB = '<div class="c-pila"><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
+    if (!e.inicio) return '<h2>Estado de cuenta de Master</h2><p>Primero empieza Master desde el estado de cuenta del banco.</p>' + cerrarB;
+    const f = e.lista.some((p) => p.hasta === hoja.f) ? hoja.f : e.enCurso.hasta;
+    const ex = F.extractoMaster(c, D.movs, f, h), p = e.lista.find((x) => x.hasta === f);
+    hoja.f = f; hoja.ex = ex;
+    const ultCerrada = e.lista.filter((x) => x.cerrada).pop();
+    const selector = '<div class="d-segmentos c-segmentos c-segmentos--hoja" role="group" aria-label="Facturación">' + e.lista.slice(-4).map((x) =>
+      `<button type="button" data-a="extracto-ver" data-f="${x.hasta}" aria-pressed="${x.hasta === f}">${cap1(F.nombreMes(x.mes).slice(0, 3))}${x.mes.slice(0, 4) !== h.slice(0, 4) ? ' ' + x.mes.slice(2, 4) : ''}</button>`).join('') + '</div>';
+    const estado = 'Del ' + fechaLarga(ex.desde) + ' al ' + fechaLarga(ex.hasta) + (ex.cerrada ? ' · pagar hasta el ' + fechaLarga(ex.pagar_hasta) : (ex.estimado ? ' (cierre estimado)' : '') + ' · ' + (ex.hasta < h ? 'por cerrar' : 'en curso'));
+    let html = `<h2>Estado de cuenta de ${mesAno(ex.mes)}</h2>` + selector + `<p>${estado}.</p>`;
+    if (p === e.enCurso) html += `<form data-f="proximo-cierre"><label class="c-campo"><span>La facturación cierra el</span><input type="date" name="cierre" value="${ex.hasta}" min="${ex.desde}"></label></form>`;
+    html += `<div class="c-ext-total d-vidrio"><span>${ex.cerrada ? 'Monto facturado a pagar' : 'Total a pagar estimado'}</span><b>${F.pesos(ex.total)}</b></div>`;
+    if (ex.cerrada && ex.minimo) html += `<p>Monto mínimo a pagar ${F.pesos(ex.minimo)}.</p>`;
+    if (ex.inicial && !ex.conDetalle) {
+      html += '<p>Es el estado de cuenta con que empezó Master: se guardó solo el total.</p>';
+    } else {
+      const c2 = (x) => F.fechaCorta(x.fecha) + (x.fecha.slice(0, 4) !== ex.hasta.slice(0, 4) ? ' ' + x.fecha.slice(0, 4) : '');
+      const lista = (s, render, vacio) => s.filas.length ? '<ul class="d-lista d-vidrio">' + s.filas.map(render).join('') + '</ul>' : `<p>${vacio}</p>`;
+      const bloque = (titulo, s, render, vacio) => `<div class="c-ext-cab"><h3>${titulo}</h3><b>${negVerde(s.total)}</b></div>` + lista(s, render, vacio);
+      const simple = (x) => fila({ titulo: esc(x.comercio), sub: c2(x) + (x.hora ? ', ' + x.hora : ''), valor: F.pesos(x.monto) });
+      const tT = F.terminacionDe(c, 'T'), tA = F.terminacionDe(c, 'A');
+      html += '<h3>Resumen</h3><ul class="d-lista d-vidrio">' + bloquesResumen(ex, c, null) +
+        `<li class="d-fila c-fila-total"><span class="d-texto"><strong>Total</strong></span><span class="d-valor">${F.pesos(ex.total)}</span></li></ul>`;
+      if (ex.diferencia) html += `<p>El monto que informó el banco difiere en <b>${F.pesos(ex.diferencia)}</b> de lo calculado con los movimientos (${F.pesos(ex.calculado)}). Revisa si falta anotar un cargo, un abono o un pago.</p>`;
+      html += bloque('Compras Titular' + (tT ? ' ****' + tT : ''), ex.titular, simple, 'Sin compras.') +
+        bloque('Compras Adicional' + (tA ? ' ****' + tA : ''), ex.adicional, simple, 'Sin compras.') +
+        bloque('Cuotas', ex.cuotas, (x) => fila({ titulo: esc(x.comercio), sub: 'Compra del ' + c2(x) + (x.montoCompra ? ' · ' + F.pesos(x.montoCompra) : ''), valor: `<span class="c-ncuota">${X.numeroCuota(x)}</span>${F.pesos(x.monto)}` }), 'Sin cuotas en esta facturación.') +
+        bloque('Cargos y abonos', ex.cargos, (x) => fila({ titulo: esc(x.comercio), sub: c2(x) + ' · ' + (x.monto < 0 ? 'Abono' : 'Cargo'), valor: negVerde(x.monto) }), 'Sin cargos ni abonos.') +
+        bloque('Pagos', ex.pagos, (x) => fila({ titulo: esc(x.comercio), sub: c2(x), valor: negVerde(x.monto) }), 'Sin pagos en esta facturación.');
+      if (ex.nuevas.filas.length) html += `<div class="c-ext-cab"><h3>Compras en cuotas de esta facturación</h3></div><p>Ocupan cupo desde la compra y se cobran por cuotas, en el bloque «Cuotas». No se suman aquí.</p>` +
+        lista(ex.nuevas, (x) => fila({ titulo: esc(x.comercio), sub: c2(x) + ' · ' + x.de + ' cuotas de ' + F.pesos(x.valor) + ' desde ' + F.nombreMes(x.primera), valor: F.pesos(x.monto) + `<small>${X.numeroCuota(x)}</small>` }));
+    }
+    let botones = '<div class="c-pila">' + (ex.n || ex.anterior ? `<button class="d-boton c-con-ico" data-a="exportar-extracto">${ico('doc', 18)}Exportar a Excel</button>` : '');
+    if (p === e.enCurso) botones += '<button type="button" class="d-boton d-boton--discreto" data-a="hoja" data-h="cerrar-fact">Cerrar con el estado de cuenta del banco</button>';
+    if (p.cerrada && !p.inicial && ultCerrada && p.hasta === ultCerrada.hasta) botones += '<button type="button" class="d-boton d-boton--discreto" data-a="reabrir" data-confirmar="Toca de nuevo para reabrirla">Reabrir esta facturación</button>';
+    return html + botones + '<button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
   }
-  if (t === 'extracto-ver') {
-    const rango = 'Del ' + fechaLarga(hoja.desde) + ' al ' + fechaLarga(hoja.hasta);
-    const botones = (exportar) => '<div class="c-pila">' + (exportar ? `<button class="d-boton c-con-ico" data-a="exportar-extracto">${ico('doc', 18)}Exportar a Excel</button>` : '') +
-      '<button type="button" class="d-boton d-boton--discreto" data-a="hoja" data-h="extracto">Cambiar fechas</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
-    if (hoja.error) return `<h2>Extracto de Master</h2><p>${rango}.</p><p class="c-error">${esc(hoja.error)}</p>` + botones(false);
-    if (!hoja.ex) return `<h2>Extracto de Master</h2><p>${rango}.</p><p class="c-cargando" role="status">Leyendo los movimientos…</p>` + botones(false);
-    const ex = hoja.ex;
-    const lista = (sec, render, vacio) => sec.filas.length ? '<ul class="d-lista d-vidrio">' + sec.filas.map(render).join('') + '</ul>' : `<p>${vacio}</p>`;
-    const simple = (x) => fila({ titulo: esc(x.comercio), sub: F.fechaCorta(x.fecha) + (x.hora ? ', ' + x.hora : ''), valor: F.pesos(x.monto) });
-    const bloque = (titulo, sec, render, vacio) => `<div class="c-ext-cab"><h3>${titulo}</h3><b>${F.pesos(sec.total)}</b></div>` + lista(sec, render || simple, vacio || 'Sin compras.');
-    return `<h2>Extracto de Master</h2><p>${rango}${hoja.sinConexion ? '. Sin conexión: con los datos guardados en este iPhone' : ''}.</p>` +
-      `<div class="c-ext-total d-vidrio"><span>Total a pagar</span><b>${F.pesos(ex.total)}</b></div>` +
-      bloque('Total Titular', ex.titular) + bloque('Total Adicional', ex.adicional) +
-      bloque('Total cuotas del periodo', ex.cuotas, (x) => fila({ titulo: esc(x.comercio),
-        sub: 'Compra del ' + F.fechaCorta(x.fecha) + (x.primera ? ' · primera cuota en ' + F.nombreMes(x.primera) + (x.primera.slice(0, 4) !== x.fecha.slice(0, 4) ? ' ' + x.primera.slice(0, 4) : '') : ''), valor: `<span class="c-ncuota">${X.numeroCuota(x)}</span>${F.pesos(x.monto)}` }), 'Sin cuotas en estas fechas.') +
-      (ex.cargos.filas.length ? bloque('Cargos', ex.cargos) : '') +
-      (ex.abonos.filas.length ? bloque('Abonos', ex.abonos, (x) => fila({ titulo: esc(x.comercio), sub: F.fechaCorta(x.fecha) + (x.hora ? ', ' + x.hora : ''), valor: `<span class="d-valor--positivo">${F.pesos(x.monto)}</span>` })) +
-        '<p>Pagos a la tarjeta en estas fechas; no se restan del total a pagar.</p>' : '') +
-      botones(ex.n + ex.abonos.filas.length > 0);
+  if (t === 'cerrar-fact') {
+    const e = D.E.master, c = F.cuenta(D.cuentas, 'master') || {};
+    if (!e.inicio) return '<h2>Master</h2><p>Primero empieza Master desde el estado de cuenta del banco.</p><div class="c-pila"><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
+    const A = e.enCurso, v = hoja.v || {}, hasta = F.esFecha(v.hasta) && v.hasta >= A.desde ? v.hasta : A.hasta;
+    const ex = F.extractoMaster(Object.assign({}, c, { proximo_cierre: hasta }), D.movs, hasta, h), uti = F.utilizadoAl(c, D.movs, hasta);
+    const monto = (nombre, etq, val, calc, ayuda) => campo(etq, `<div class="c-prefijo"><b>$</b><input type="text" name="${nombre}" inputmode="numeric" autocomplete="off" placeholder="${calc != null ? F.miles(calc).replace('−', '-') : 'Opcional'}" value="${esc(val || '')}"></div>`) + (ayuda ? `<p class="c-ayuda" style="margin:6px 4px 0">${ayuda}</p>` : '');
+    return `<form data-f="cerrar-fact"><h2>Cerrar ${F.nombreMes(A.mes)}</h2><p>Copia las cifras del estado de cuenta del banco. El monto facturado pasa a ser el saldo anterior de la facturación siguiente y el cupo utilizado corrige el disponible desde el día siguiente al cierre.</p>` +
+      `<div class="c-dos-campos">${campo('Fecha de cierre', `<input type="date" name="hasta" value="${hasta}" min="${A.desde}" required>`)}${campo('Pagar hasta', `<input type="date" name="pagar_hasta" value="${F.esFecha(v.pagar_hasta) ? v.pagar_hasta : F.sumarDias(hasta, F.PLAZO_PAGO)}" required>`)}</div>` +
+      monto('facturado', 'Monto total facturado a pagar', v.facturado, ex.calculado, 'Con los movimientos anotados: ' + F.pesos(ex.calculado) + '. Si lo dejas vacío, se usa ese.') +
+      monto('utilizado', 'Cupo utilizado', v.utilizado, uti, 'Con los movimientos anotados: ' + F.pesos(uti) + '. Si lo dejas vacío, se usa ese.') +
+      monto('minimo', 'Monto mínimo a pagar (opcional)', v.minimo, null) +
+      pie('Cerrar facturación') + '</form>';
+  }
+  if (t === 'master-inicio') {
+    return '<form data-f="master-inicio"><h2>Empezar Master</h2><p>Pega el código del estado de cuenta (empieza con <b>{"app":"master-estado"</b>). Trae el cupo, el monto facturado con su detalle y las compras en cuotas que se siguen cobrando. Los movimientos desde el día siguiente al cierre se quedan como están.</p>' +
+      campo('Código del estado de cuenta', '<textarea name="texto" spellcheck="false" autocapitalize="off" placeholder="Pega aquí el código"></textarea>') +
+      pie('Revisar código', '<button type="button" class="d-boton d-boton--discreto" data-a="hoja" data-h="master-manual">Escribir las cifras a mano</button>') + '</form>';
+  }
+  if (t === 'master-manual') {
+    const v = hoja.v || {};
+    return '<form data-f="master-manual"><h2>Empezar con las cifras</h2><p>Copia del último estado de cuenta del banco el periodo facturado, la fecha de pago, el monto total facturado, el cupo total y el cupo utilizado. Las compras en cuotas que se siguen cobrando se agregan después, en «Compras en cuotas».</p>' +
+      `<div class="c-dos-campos">${campo('Periodo desde', `<input type="date" name="desde" value="${v.desde || ''}" required>`)}${campo('Hasta (cierre)', `<input type="date" name="hasta" value="${v.hasta || ''}" max="${h}" required>`)}</div>` +
+      campo('Pagar hasta', `<input type="date" name="pagar_hasta" value="${v.pagar_hasta || ''}" required>`) +
+      campoMonto('facturado', 'Monto total facturado a pagar', v.facturado) + campoMonto('minimo', 'Monto mínimo a pagar (opcional)', v.minimo) +
+      `<div class="c-dos-campos">${campoMonto('cupo', 'Cupo total', v.cupo)}${campoMonto('utilizado', 'Cupo utilizado', v.utilizado)}</div>` +
+      pie('Empezar') + '</form>';
+  }
+  if (t === 'cuota-inicial') {
+    const e = D.E.master, c = F.cuenta(D.cuentas, 'master') || {};
+    if (!e.inicio) return '<h2>Master</h2><p>Primero empieza Master desde el estado de cuenta del banco.</p><div class="c-pila"><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
+    const mes = e.enCurso.mes, x = hoja.id ? (c.cuotas || []).find((q) => q.id === hoja.id) : null;
+    const v = Object.assign({ comercio: '', fecha: '', monto: '', cuotas: 3, k: 1, valor: '' }, x ? { comercio: x.comercio, fecha: x.fecha, monto: x.monto, cuotas: x.cuotas, k: F.cuotaEn(x, mes), valor: x.valor || '' } : {}, hoja.v || {});
+    return `<form data-f="cuota-inicial"><h2>${x ? 'Compra en cuotas' : 'Compra en cuotas anterior'}</h2><p>Para una compra hecha antes del ${F.fechaCorta(e.inicio)} que se sigue cobrando por cuotas. Las compras nuevas en cuotas se anotan como «Compra» con sus cuotas.</p>` +
+      campo('Comercio', `<input type="text" name="comercio" maxlength="60" autocomplete="off" value="${esc(v.comercio)}" required>`) +
+      `<div class="c-dos-campos">${campo('Fecha de la compra', `<input type="date" name="fecha" value="${v.fecha}" max="${h}" required>`)}${campoMonto('monto', 'Monto de la compra', v.monto)}</div>` +
+      `<div class="c-dos-campos">${campo('Cuotas', `<input type="number" name="cuotas" inputmode="numeric" min="1" max="60" value="${v.cuotas}" required>`)}${campo('Cuota de ' + F.nombreMes(mes), `<input type="number" name="k" inputmode="numeric" min="0" max="60" value="${v.k}" required>`)}</div>` +
+      `<p class="c-ayuda" style="margin:6px 4px 0">El número de la cuota que se cobra en la facturación de ${F.nombreMes(mes)} (por ejemplo, 2 si es la 2/3). Escribe 0 si empieza en la facturación siguiente.</p>` +
+      campoMonto('valor', 'Valor de la cuota (opcional, si tiene interés)', v.valor) +
+      pie(x ? 'Guardar cambios' : 'Agregar compra', x ? borrarBtn('compra') : '') + '</form>';
   }
   if (t === 'detalle-puntos') {
     const e = D.E.liderbci, c = F.cuenta(D.cuentas, 'liderbci') || {};
@@ -951,13 +1073,22 @@ function contenidoHoja() {
   }
   if (t === 'importar') {
     const r = hoja.respaldo;
-    const reemplaza = { pagos: 'Reemplaza la lista de pagos de Finanzas.', mesadas: 'Reemplaza los aportes de Mesadas en Finanzas.', creditos: 'Reemplaza los créditos de Finanzas.' }[r.app];
+    const reemplaza = { pagos: 'Reemplaza la lista de pagos de Finanzas.', mesadas: 'Reemplaza los aportes de Mesadas en Finanzas.', creditos: 'Reemplaza los créditos de Finanzas.',
+      'master-estado': 'Master parte de nuevo desde este estado de cuenta: cupo, cupo utilizado, monto facturado con su detalle y las compras en cuotas por cobrar. Los movimientos desde el día siguiente al cierre se quedan como están; los anteriores ya no se usan.',
+      master: 'Agrega los movimientos que falten (los que ya llegaron por aviso se quedan como están). Si Master ya empezó desde un estado de cuenta, su punto de partida no cambia.' }[r.app];
+    if (r.app === 'master-estado') return `<h2>Empezar Master</h2><p>El código trae <b>${esc(r.resumen)}</b>.</p><p>${reemplaza}</p>` +
+      (r.cuadra === false ? '<p class="c-error">El cupo utilizado no es igual al monto facturado más las cuotas por cobrar. Revisa las compras en cuotas después de empezar.</p>' : '<p>El monto facturado cuadra con el detalle y el cupo utilizado cuadra con las cuotas por cobrar.</p>') +
+      '<div class="c-pila"><button class="d-boton" data-a="importar">Empezar Master</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cancelar</button></div>';
     return `<h2>Traer ${esc(r.nombre)}</h2><p>El respaldo trae <b>${esc(r.resumen)}</b>.</p><p>${reemplaza || 'Reemplaza el punto de partida de ' + esc(r.nombre) + ' y agrega los movimientos que falten; los que ya llegaron por aviso se quedan como están.'}</p>` +
       `<div class="c-pila"><button class="d-boton" data-a="importar">Traer ${esc(r.nombre)}</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cancelar</button></div>`;
   }
   if (t === 'ayuda') return '<h2>Cómo funciona Finanzas</h2>' +
     '<h3>FAN y Copec</h3><p>Saldo = el saldo que ajustaste, más lo que entró y menos lo que salió desde ese momento. Las compras y giros de FAN y los cargos de Copec llegan solos con los avisos; los depósitos y abonos se anotan con +. FAN sigue una sola cuenta: los avisos de otra terminación no cuentan.</p>' +
-    '<h3>Master</h3><p>Utilizado = el de partida, más compras, cargos y cuotas por cobrar, menos abonos. Las compras en cuotas ocupan todo su monto hasta pagarse; cada cuota se cobra en la facturación de su mes, que cierra cerca del día 22. Disponible = cupo − utilizado. «Generar extracto» muestra, entre dos fechas, el total a pagar: compras Titular y Adicional, la cuota de cada compra en cuotas que se factura en esas fechas (con su número, por ejemplo 2/3) y los cargos; los abonos se muestran aparte y no se restan. Se exporta a Excel. En «Cuotas por cobrar» se puede anotar de cuántas cuotas era la compra, para que el número coincida con el del banco. En una compra en cuotas se elige en qué facturación se cobra la primera: si es en una siguiente, en el extracto de estas fechas va como 0/3 y $0.</p>' +
+    '<h3>Master</h3><p>Se lleva igual que el estado de cuenta del banco, por facturaciones: cada una va del día siguiente al cierre anterior hasta su cierre. Empieza desde un estado de cuenta (el de noviembre 2026) y desde ahí suma lo que llega por aviso o se anota.</p>' +
+    '<p><b>Total a pagar</b> = saldo anterior (el monto facturado de la facturación anterior) − pagos + compras Titular + compras Adicional + cuotas + cargos − abonos. Es la misma cuenta del banco.</p>' +
+    '<p><b>Compras en cuotas</b>: no son de Titular ni de Adicional. Ocupan todo su monto en el cupo desde la compra y se cobran una cuota por facturación, desde la siguiente a la de la compra (en el estado de cuenta de la compra aparecen como 00/03). Si tienen interés, anota el valor de la cuota.</p>' +
+    '<p><b>Pagos y abonos</b>: un pago es el pago de la tarjeta; un abono es una devolución o reversa de una compra. Los dos bajan la deuda, pero van en bloques distintos.</p>' +
+    '<p><b>Cerrar la facturación</b>: cuando llega el estado de cuenta, copia el monto facturado y el cupo utilizado. Si no cuadran con lo calculado, el extracto muestra la diferencia. Disponible = cupo − utilizado.</p>' +
     '<h3>LiderBCI</h3><p>Se anota a mano. Total del periodo = compras − abonos y devoluciones. Puntos: 6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto. Al pagar, «Cerrar periodo» guarda los puntos y deja el total en cero. Al tocar «Puntos» en el recuadro se abre su detalle, con los canjes y ajustes.</p>' +
     '<h3>Pagos del mes</h3><p>La lista de pagos de cada mes, en dos secciones. Avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.</p>' +
     '<h3>Mesadas</h3><p>Los aportes a Piti y Emi, con su asunto. Lo entregado en el mes se suma a lo gastado en el Resumen.</p>' +
@@ -1049,9 +1180,10 @@ function avisar(titulo, sub, error) {
 // Los valores del formulario de movimiento, para no perderlos al cambiar de cuenta o de tipo
 function valoresMov(f) {
   const v = {};
-  ['cuenta', 'tipo', 'titular', 'prox'].forEach((k) => { if (f[k] && f[k].value) v[k] = f[k].value; });
-  ['monto', 'comercio', 'fecha', 'hora', 'cuotas', 'cuotas_total'].forEach((k) => { if (f[k]) v[k] = f[k].value; });
+  ['cuenta', 'tipo', 'titular', 'primera'].forEach((k) => { if (f[k] && f[k].value) v[k] = f[k].value; });
+  ['monto', 'comercio', 'fecha', 'hora', 'cuotas', 'valor_cuota'].forEach((k) => { if (f[k]) v[k] = f[k].value; });
   if (v.monto != null) v.monto = montoDe(v.monto) == null ? '' : montoDe(v.monto);
+  if (v.valor_cuota != null) v.valor_cuota = montoDe(v.valor_cuota) || '';
   return v;
 }
 
@@ -1059,13 +1191,20 @@ function valoresMov(f) {
 const ACCIONES = {
   'exportar-extracto'() {
     if (!hoja || !hoja.ex) return;
-    const e = datos().E.master, h = hoy();
+    const D = datos(), e = D.E.master, h = hoy(), c = F.cuenta(D.cuentas, 'master') || {};
     let bytes;
     try {
       bytes = X.extractoXlsx(hoja.ex, { generado: fechaLarga(h) + ', ' + ahoraHM(), cupo: e.cupo, utilizado: e.definida ? e.utilizado : null,
-        disponible: e.disponible, enCuotas: e.cuotasPendiente });
+        disponible: e.disponible, enCuotas: e.cuotasPendiente, titular: F.terminacionDe(c, 'T'), adicional: F.terminacionDe(c, 'A') });
     } catch (err) { avisar('No se pudo armar el archivo de Excel', err.message, true); return; }
     entregarArchivo(bytes, X.nombreExtracto(hoja.ex), X.XLSX_MIME);
+  },
+  'extracto-ver'(el) { if (!hoja) return; hoja.f = el.dataset.f; repintarHoja(); $('hoja').scrollTop = 0; },
+  reabrir() {
+    if (!hoja || !hoja.f) return;
+    const f = hoja.f;
+    hacer('cuentas.json', { tipo: 'reabrirFacturacion', hasta: f }, 'reabre la facturación de Master que cerró el ' + f);
+    repintarHoja(); avisar('Facturación reabierta', 'Ciérrala de nuevo cuando quieras');
   },
   tab(el) { ui.tab = el.dataset.t; guardarLS(CL.ui, ui); window.scrollTo(0, 0); render(); },
   ir(el) {
@@ -1076,7 +1215,7 @@ const ACCIONES = {
   cuenta(el) { ui.cuenta = el.dataset.c; guardarLS(CL.ui, ui); render(); },
   anotar() { abrirHoja(ui.tab === 'mesadas' ? 'aporte' : ui.tab === 'creditos' ? 'credito' : 'mov'); },
   ayuda() { abrirHoja('ayuda'); },
-  hoja(el) { abrirHoja(el.dataset.h, { id: el.dataset.id || null, s: el.dataset.s || null, v: el.dataset.cuenta ? { cuenta: el.dataset.cuenta } : null, volver: el.dataset.volver || null }); },
+  hoja(el) { abrirHoja(el.dataset.h, { id: el.dataset.id || null, s: el.dataset.s || null, f: el.dataset.f || null, v: el.dataset.cuenta ? { cuenta: el.dataset.cuenta } : null, volver: el.dataset.volver || null }); },
   hija(el) { ui.hija = el.dataset.v; guardarLS(CL.ui, ui); render(); },
   sugerencia(el) { const i = $('hoja').querySelector('input[name="asunto"]'); if (i) i.value = el.dataset.v; },
   'deshacer-pago'(el) { hacer('creditos.json', { tipo: 'deshacerPago', idCredito: el.dataset.id }, 'quita el último pago de un crédito'); repintarHoja(); avisar('Pago quitado'); },
@@ -1102,6 +1241,7 @@ const ACCIONES = {
     else if (t === 'pago') hacer('pagos.json', { tipo: 'pagoBorrar', idPago: hoja.id }, 'elimina un pago');
     else if (t === 'aporte') hacer('mesadas.json', { tipo: 'borrarAporte', idAporte: hoja.id }, 'elimina un aporte');
     else if (t === 'credito') hacer('creditos.json', { tipo: 'borrarCredito', idCredito: hoja.id }, 'elimina un crédito');
+    else if (t === 'cuota-inicial') hacer('cuentas.json', { tipo: 'borrarCuotaInicial', idCuota: hoja.id }, 'elimina una compra en cuotas anterior de Master');
     if (hoja.volver) abrirHoja(hoja.volver); else cerrarHoja();
     avisar('Eliminado');
   },
@@ -1119,51 +1259,78 @@ const ACCIONES = {
     r.cambios.forEach(({ archivo, cambio }) => hacer(archivo, cambio, 'trae el respaldo de ' + r.nombre));
     cerrarHoja();
     const tx = document.querySelector('form[data-f="importar"] textarea'); if (tx) tx.value = '';
-    avisar(r.nombre + ' traído', r.resumen);
+    if (r.app === 'master-estado') { ui.tab = 'cuentas'; ui.cuenta = 'master'; guardarLS(CL.ui, ui); window.scrollTo(0, 0); render(); avisar('Master empezó', 'Desde ' + r.resumen); }
+    else avisar(r.nombre + ' traído', r.resumen);
   },
 };
 
 const FORMULARIOS = {
-  extracto(f) {
-    const desde = f.desde.value, hasta = f.hasta.value;
-    if (!F.esFecha(desde) || !F.esFecha(hasta)) return errorHoja('Indica las dos fechas.');
-    if (desde > hasta) return errorHoja('La fecha de inicio debe ser anterior a la de cierre.');
-    if (F.mesesEntre(desde.slice(0, 7), hasta.slice(0, 7)) > 23) return errorHoja('Elige un rango de hasta dos años.');
-    ultExtracto = { desde, hasta };
-    // Meses: los de las fechas elegidas y los anteriores que tengan movimientos, hasta 60 meses atrás (lo más largo de una
-    // compra en cuotas), para encontrar las cuotas que se facturan en el periodo. Qué meses existen se pregunta a GitHub
-    // una vez cada 10 minutos; los que la app ya mantiene al día se usan tal cual y los demás se leen una vez por sesión.
-    const al = mesesNecesarios(), desdeYM = desde.slice(0, 7), hastaYM = hasta.slice(0, 7), inicio = F.sumarMesesYM(desdeYM, -60), rango = [];
-    for (let ym = desdeYM; ym <= hastaYM; ym = F.sumarMesesYM(ym, 1)) rango.push(ym);
-    const delMes = (a) => (/^movimientos\/(\d{4}-\d{2})\.json$/.exec(a) || [])[1];
-    const guardados = () => Object.keys(srv).concat(cola.map((p) => p.archivo)).map(delMes).filter(Boolean);
-    const elegir = (lista) => [...new Set(lista.concat(al, rango))].filter((ym) => ym >= inicio && ym <= hastaYM).sort();
-    const alDia = (ym) => (al.includes(ym) && srv[F.archivoMes(ym)] && srv[F.archivoMes(ym)].leido) || mesesLeidos.has(ym);
-    const armar = (meses) => F.extractoMaster(meses.flatMap((ym) => vista(F.archivoMes(ym))), desde, hasta);
-    if (!llave) { abrirHoja('extracto-ver', { desde, hasta, ex: armar(elegir(guardados())) }); return; }
-    if (carpetaMov && Date.now() - carpetaMov.at < 600000) {
-      const meses = elegir(carpetaMov.meses);
-      if (meses.every((ym) => !carpetaMov.meses.includes(ym) || alDia(ym))) { abrirHoja('extracto-ver', { desde, hasta, ex: armar(meses) }); return; }
-    }
-    abrirHoja('extracto-ver', { desde, hasta });
-    const marca = hoja;
-    (async () => {
-      let sinConexion = false, existen;
-      try {
-        const r = await api('GET', '/api/datos?carpeta=movimientos');
-        existen = (r.contenido || []).map((n) => (/^(\d{4}-\d{2})\.json$/.exec(n) || [])[1]).filter(Boolean);
-        carpetaMov = { meses: existen, at: Date.now() };
-      } catch (e) { sinConexion = true; existen = guardados(); }
-      const meses = elegir(existen);
-      const leer = sinConexion ? [] : meses.filter((ym) => existen.includes(ym) && !alDia(ym));
-      const r = await Promise.allSettled(leer.map((ym) => leerServidor(F.archivoMes(ym)).then(() => mesesLeidos.add(ym))));
-      if (r.some((x) => x.status === 'rejected')) sinConexion = true;
-      if (hoja !== marca) return;
-      if (sinConexion && rango.some((ym) => !srv[F.archivoMes(ym)] && !al.includes(ym))) {
-        hoja.error = 'No se pudieron leer los movimientos de esas fechas. Revisa la conexión e inténtalo de nuevo.'; repintarHoja(); return;
-      }
-      hoja.sinConexion = sinConexion; hoja.ex = armar(meses); repintarHoja();
-    })();
+  // Cambiar la fecha de cierre de la facturación en curso (queda guardada para todo Master)
+  'proximo-cierre'(f) {
+    const v = f.cierre.value, e = datos().E.master;
+    if (!e.inicio || !F.esFecha(v)) return;
+    if (v < e.enCurso.desde) { avisar('Fecha no válida', 'El cierre debe ser después del ' + F.fechaCorta(e.enCurso.desde), true); repintarHoja(); return; }
+    if (v === e.enCurso.hasta) return;
+    hacer('cuentas.json', { tipo: 'ajustesCuenta', cuenta: 'master', valores: { proximo_cierre: v } }, 'próximo cierre de Master: ' + v);
+    hoja.f = v; repintarHoja(); avisar('Cierre cambiado', 'La facturación cierra el ' + F.fechaCorta(v));
+  },
+  'cerrar-fact'(f) {
+    const D = datos(), e = D.E.master, c = F.cuenta(D.cuentas, 'master') || {}, h = hoy();
+    if (!e.inicio) return;
+    const A = e.enCurso, hasta = f.hasta.value, pagar = f.pagar_hasta.value;
+    if (!F.esFecha(hasta) || hasta < A.desde) return errorHoja('La fecha de cierre debe ser el ' + F.fechaCorta(A.desde) + ' o después.');
+    if (hasta > h) return errorHoja('Esa facturación todavía no cierra. Ciérrala cuando llegue el estado de cuenta.');
+    if (!F.esFecha(pagar) || pagar < hasta) return errorHoja('La fecha de pago debe ser posterior al cierre.');
+    const ex = F.extractoMaster(Object.assign({}, c, { proximo_cierre: hasta }), D.movs, hasta, h);
+    const leer = (campo, porDefecto) => (String(f[campo].value || '').trim() ? montoDe(f[campo].value) : porDefecto);
+    const facturado = leer('facturado', ex.calculado), utilizado = leer('utilizado', F.utilizadoAl(c, D.movs, hasta)), minimo = leer('minimo', null);
+    if (facturado == null) return errorHoja('Escribe el monto facturado como número, por ejemplo 1.250.000.');
+    if (utilizado == null) return errorHoja('Escribe el cupo utilizado como número.');
+    const fact = { mes: hasta.slice(0, 7), desde: A.desde, hasta, pagar_hasta: pagar, facturado, utilizado, calculado: ex.calculado, cerrada_el: h, origen: 'banco' };
+    if (minimo > 0) fact.minimo = minimo;
+    hacer('cuentas.json', { tipo: 'cerrarFacturacion', fact }, 'cierra la facturación de ' + F.nombreMes(fact.mes) + ' de Master: ' + F.pesos(facturado));
+    const dif = facturado - ex.calculado;
+    abrirHoja('extracto', { f: hasta });
+    avisar('Facturación cerrada', dif ? 'Difiere en ' + F.pesos(dif) + ' de lo calculado' : 'Cuadra con lo calculado');
+  },
+  'master-inicio'(f) {
+    const r = F.leerRespaldo(f.texto.value);
+    if (r.error) return errorHoja(r.error);
+    if (r.app !== 'master-estado') return errorHoja('Ese texto no es un estado de cuenta de Master. Para traer el respaldo de la app Master antigua, usa Ajustes → Traer datos.');
+    abrirHoja('importar', { respaldo: r });
+  },
+  'master-manual'(f) {
+    const v = {}; ['desde', 'hasta', 'pagar_hasta', 'facturado', 'minimo', 'cupo', 'utilizado'].forEach((k) => { v[k] = f[k].value; });
+    hoja.v = v;
+    if (!F.esFecha(v.desde) || !F.esFecha(v.hasta) || v.desde > v.hasta) return errorHoja('Indica el periodo facturado: desde y hasta.');
+    if (v.hasta > hoy()) return errorHoja('El cierre no puede ser futuro.');
+    if (!F.esFecha(v.pagar_hasta) || v.pagar_hasta < v.hasta) return errorHoja('La fecha de pago debe ser posterior al cierre.');
+    const fac = montoDe(v.facturado), cupo = montoDe(v.cupo), uti = montoDe(v.utilizado), min = String(v.minimo || '').trim() ? montoDe(v.minimo) : 0;
+    if (fac == null) return errorHoja('Escribe el monto total facturado.');
+    if (!(cupo > 0)) return errorHoja('Escribe el cupo total.');
+    if (uti == null) return errorHoja('Escribe el cupo utilizado.');
+    const valores = F.valoresInicioMaster({ cupo, desde: v.desde, hasta: v.hasta, pagar_hasta: v.pagar_hasta, facturado: fac, minimo: min || 0, utilizado: uti });
+    hacer('cuentas.json', { tipo: 'iniciarMaster', valores }, 'Master empieza desde el estado de cuenta al ' + v.hasta);
+    cerrarHoja(); avisar('Master empezó', 'Desde el estado de cuenta al ' + F.fechaCorta(v.hasta));
+  },
+  'cuota-inicial'(f) {
+    const D = datos(), e = D.E.master;
+    if (!e.inicio) return;
+    const comercio = String(f.comercio.value || '').replace(/\s+/g, ' ').trim().slice(0, 60), fecha = f.fecha.value, monto = montoDe(f.monto.value);
+    const n = parseInt(f.cuotas.value, 10), k = parseInt(f.k.value, 10), valor = String(f.valor.value || '').trim() ? montoDe(f.valor.value) : 0;
+    hoja.v = { comercio, fecha, monto: f.monto.value, cuotas: f.cuotas.value, k: f.k.value, valor: f.valor.value };
+    if (!comercio) return errorHoja('Escribe el comercio.');
+    if (!F.esFecha(fecha)) return errorHoja('Indica la fecha de la compra.');
+    if (!(monto > 0)) return errorHoja('Escribe el monto de la compra.');
+    if (!(n >= 1 && n <= 60)) return errorHoja('Las cuotas van de 1 a 60.');
+    if (!(k >= 0 && k <= n)) return errorHoja('La cuota de ' + F.nombreMes(e.enCurso.mes) + ' va de 0 a ' + n + '.');
+    if (valor == null || valor < 0) return errorHoja('El valor de la cuota debe ser un número.');
+    // La cuota k se cobra en la facturación en curso: la primera fue k − 1 facturaciones antes (0: empieza en la siguiente)
+    const previa = hoja.id;
+    const cuota = { id: previa || F.nuevoId('qi'), fecha, comercio, monto, cuotas: n, primera: F.sumarMesesYM(e.enCurso.mes, k === 0 ? 1 : 1 - k) };
+    if (valor > 0) cuota.valor = valor;
+    hacer('cuentas.json', { tipo: 'cuotaInicial', cuota }, (previa ? 'corrige' : 'agrega') + ' la compra en cuotas ' + comercio + ' en Master');
+    cerrarHoja(); avisar(previa ? 'Cambios guardados' : 'Compra en cuotas agregada', comercio);
   },
   async conectar(f) {
     const codigo = String(f.codigo.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -1199,18 +1366,28 @@ const FORMULARIOS = {
     if (v.hora && !F.esHora(v.hora)) return errorHoja('La hora no es válida.');
     const mov = Object.assign({}, previo || { origen: 'manual', cuenta, id: cuenta + '-' + F.nuevoId('m') },
       { tipo: v.tipo, monto: v.monto, comercio: String(v.comercio || '').replace(/\s+/g, ' ').trim().slice(0, 60) || F.NOMBRE_TIPO[v.tipo], fecha: v.fecha, hora: v.hora || '' });
-    if (cuenta === 'master' && (v.tipo === 'compra' || v.tipo === 'cuota')) {
+    if (cuenta === 'master') {
+      const c = F.cuenta(datos().cuentas, 'master') || {};
+      if (!previo && c.inicio && v.fecha < c.inicio) return errorHoja('Master empieza el ' + F.fechaCorta(c.inicio) + ': lo anterior está en el estado de cuenta con que empezó. Una compra en cuotas anterior se agrega en «Compras en cuotas».');
+    }
+    if (cuenta === 'master' && v.tipo === 'compra') {
       const n = parseInt(v.cuotas, 10);
       if (!(n >= 1 && n <= 60)) return errorHoja('Las cuotas van de 1 a 60.');
       mov.cuotas = n;
-      if (v.tipo === 'compra' && n === 1) mov.titular = v.titular === 'Adicional' ? 'Adicional' : 'Titular'; else delete mov.titular;
-      const tot = v.tipo === 'cuota' && String(v.cuotas_total || '').trim() ? parseInt(v.cuotas_total, 10) : 0;
-      if (tot && !(tot >= n && tot <= 60)) return errorHoja('El total de cuotas va de ' + n + ' a 60: no puede ser menor que las que faltan.');
-      if (tot > n) mov.cuotas_total = tot; else delete mov.cuotas_total;
-      // Primera cuota: la facturación elegida, si es la de la fecha o una de las tres siguientes
-      const base = F.proxDe(v.fecha), ok = /^\d{4}-\d{2}$/.test(String(v.prox || '')) && v.prox >= base && F.mesesEntre(base, v.prox) <= 3;
-      if (n > 1 || v.tipo === 'cuota') mov.prox = ok ? v.prox : base; else delete mov.prox;
-    } else { delete mov.titular; delete mov.cuotas; delete mov.prox; delete mov.cuotas_total; }
+      if (n === 1) { mov.titular = v.titular === 'Adicional' ? 'Adicional' : 'Titular'; delete mov.primera; delete mov.valor_cuota; }
+      else {
+        // En cuotas: sin Titular ni Adicional. Primera cuota en la facturación elegida (la de la compra o una de las tres
+        // siguientes); por omisión, la siguiente a la de la compra.
+        delete mov.titular;
+        const fact = F.mesDeFacturacion(F.cuenta(datos().cuentas, 'master') || {}, v.fecha);
+        const ok = /^\d{4}-\d{2}$/.test(String(v.primera || '')) && v.primera >= fact && F.mesesEntre(fact, v.primera) <= 3;
+        mov.primera = ok ? v.primera : F.sumarMesesYM(fact, 1);
+        const vc = String(v.valor_cuota || '').trim() ? montoDe(v.valor_cuota) : 0;
+        if (vc == null || vc < 0) return errorHoja('El valor de la cuota debe ser un número.');
+        if (vc > 0) mov.valor_cuota = vc; else delete mov.valor_cuota;
+      }
+      delete mov.prox; delete mov.cuotas_total;
+    } else { delete mov.titular; delete mov.cuotas; delete mov.prox; delete mov.primera; delete mov.valor_cuota; delete mov.cuotas_total; }
     if (previo && F.mesDe(previo) !== F.mesDe(mov)) hacer(F.archivoMes(F.mesDe(previo)), { tipo: 'borrarMovimiento', idMov: previo.id }, 'mueve ' + mov.comercio + ' de mes');
     hacer(F.archivoMes(F.mesDe(mov)), { tipo: 'movimiento', mov }, (previo ? 'corrige ' : 'anota ') + F.NOMBRE_TIPO[mov.tipo].toLowerCase() + ' en ' + NOMBRE[cuenta] + ': ' + mov.comercio + ' ' + F.pesos(mov.monto));
     cerrarHoja(); avisar(previo ? 'Cambios guardados' : 'Movimiento anotado', NOMBRE[cuenta] + ' · ' + (F.signo(mov) > 0 ? '+' : '−') + F.pesos(mov.monto));
@@ -1337,21 +1514,30 @@ function alCambiar(ev) {
     hoja.v.tipo = ev.target.value; if (fc.tasa_tipo) hoja.v.tasa_tipo = fc.tasa_tipo.value;
     repintarHoja(); return;
   }
+  // Estado de cuenta: cambiar la fecha de cierre de la facturación en curso
+  const fc2 = ev.target.closest('#hoja form[data-f="proximo-cierre"]');
+  if (fc2 && ev.type === 'change') { FORMULARIOS['proximo-cierre'](fc2); return; }
+  // Cerrar facturación: con otra fecha de cierre cambian los montos calculados
+  const fcf = ev.target.closest('#hoja form[data-f="cerrar-fact"]');
+  if (fcf && ev.target.name === 'hasta' && ev.type === 'change') {
+    hoja.v = {}; ['hasta', 'facturado', 'utilizado', 'minimo'].forEach((k) => { hoja.v[k] = fcf[k].value; });
+    repintarHoja(); return;
+  }
   const f = ev.target.closest('#hoja form[data-f="mov"]');
   if (!f || !hoja) return;
   if (['cuenta', 'tipo'].includes(ev.target.name) && ev.type === 'change') { hoja.v = valoresMov(f); repintarHoja(); return; }
-  // Al cambiar la fecha cambian las facturaciones posibles; si seguía la de la fecha, pasa a la de la fecha nueva
+  // Al cambiar la fecha cambia la facturación de la compra; si seguía la primera cuota por omisión, sigue la nueva
   if (ev.target.name === 'fecha' && ev.type === 'change' && f.querySelector('[data-primera]')) {
     const antes = f.querySelector('[data-primera]').dataset.primera;
-    hoja.v = valoresMov(f); if (hoja.v.prox === antes) delete hoja.v.prox;
+    hoja.v = valoresMov(f); if (hoja.v.primera === antes) delete hoja.v.primera;
     repintarHoja(); return;
   }
-  if (ev.target.name === 'prox') { const a = f.querySelector('[data-primera] .c-ayuda'), base = F.proxDe(F.esFecha(f.fecha.value) ? f.fecha.value : hoy());
-    if (a) a.textContent = ev.target.value === base ? 'La de la fecha: cierra el ' + F.CIERRE + ' de ' + F.nombreMes(base) + '.' : 'Hasta entonces no se cobra ninguna cuota.'; }
+  if (ev.target.name === 'primera') { const fs = f.querySelector('[data-primera]'), a = fs && fs.querySelector('.c-ayuda');
+    if (a) a.textContent = ayudaPrimera(fs.dataset.fact, fs.dataset.primera, ev.target.value); }
   if (ev.target.name === 'cuotas' && f.tipo.value === 'compra') {
-    const enCuotas = (parseInt(ev.target.value, 10) || 1) > 1, tarjeta = f.querySelector('[data-tarjeta]'), primera = f.querySelector('[data-primera]');
+    const enCuotas = (parseInt(ev.target.value, 10) || 1) > 1, tarjeta = f.querySelector('[data-tarjeta]'), cuotas = f.querySelector('[data-encuotas]');
     if (tarjeta) tarjeta.hidden = enCuotas;
-    if (primera) primera.hidden = !enCuotas;
+    if (cuotas) cuotas.hidden = !enCuotas;
   }
   const nota = f.querySelector('[data-nota]');
   if (nota && ev.target.name === 'comercio') nota.textContent = 'Suma ' + F.tasaPuntos(ev.target.value) + ' % en puntos.';

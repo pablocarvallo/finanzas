@@ -5,7 +5,7 @@
 // por mes; los avisos del banco y de Copec llegan solos), pagos.json (pagos del mes), mesadas.json (aportes a Piti y
 // Emi) y creditos.json (créditos de consumo, hipotecario y deudas con abonos, de ingreso manual).
 
-export const VERSION = '1.2.3';
+export const VERSION = '1.3.0';
 
 /* ---------- Fechas y formatos ---------- */
 const pad = (n) => (n < 10 ? '0' : '') + n;
@@ -35,7 +35,8 @@ export const momento = (m) => m.fecha + 'T' + (m.hora || '00:00');
 export const PLANTILLAS = {
   'cuentas.json': { cuentas: [
     { id: 'fan', nombre: 'FAN', tipo: 'debito', banco: 'Banco de Chile', fuente: 'bancochile', saldo_inicial: null, terminacion: null },
-    { id: 'master', nombre: 'Master', tipo: 'credito', banco: 'Banco de Chile', fuente: 'bancochile', cupo: null, deuda_inicial: null, tarjetas: { 9908: 'T', 4526: 'A' } },
+    { id: 'master', nombre: 'Master', tipo: 'credito', banco: 'Banco de Chile', fuente: 'bancochile', cupo: null, deuda_inicial: null, tarjetas: { 9908: 'T', 4526: 'A' },
+      inicio: null, facturaciones: [], cuotas: [], proximo_cierre: null },
     { id: 'liderbci', nombre: 'LiderBCI', tipo: 'credito', fuente: null, periodo_desde: null, puntos_movimientos: [],
       puntos: { porcentaje_lider: 6, sin_puntos: ['Jumbo', 'Unimarc', 'Tottus', 'Santa Isabel', 'El 9', 'Don Salva'], porcentaje_otros: 1 } },
     { id: 'copec', nombre: 'Copec Pay', tipo: 'prepago', fuente: 'copec', saldo_inicial: null },
@@ -49,15 +50,17 @@ export function cuenta(cs, id) { return ((cs && cs.cuentas) || []).find((c) => c
 export const ORDEN = ['fan', 'master', 'liderbci', 'copec'];
 
 /* ---------- Movimientos ---------- */
-// Tipos: salen compra, giro, cargo, cuota (cuotas por cobrar de Master), pago y aporte; entran abono, devolución y
-// depósito. Los avisos del banco y de Copec llegan como compra, giro o devolución.
-export const SALIDAS = ['compra', 'giro', 'cargo', 'cuota', 'pago', 'aporte'];
-export const ENTRADAS = ['abono', 'devolucion', 'deposito'];
+// Tipos: salen compra, giro, cargo, cuota (cuotas por cobrar de la Master antigua) y aporte; entran abono, devolución,
+// depósito y pago (pago de una tarjeta de crédito). En Master, una devolución es un abono, no un pago: los dos bajan la
+// deuda, pero el estado de cuenta los muestra por separado. Los avisos del banco y de Copec llegan como compra, giro o
+// devolución.
+export const SALIDAS = ['compra', 'giro', 'cargo', 'cuota', 'aporte'];
+export const ENTRADAS = ['abono', 'devolucion', 'deposito', 'pago'];
 export const signo = (m) => (ENTRADAS.includes(m.tipo) ? 1 : -1);
-export const NOMBRE_TIPO = { compra: 'Compra', giro: 'Giro en cajero', cargo: 'Cargo', cuota: 'Cuotas por cobrar', pago: 'Pago', aporte: 'Aporte', abono: 'Abono', devolucion: 'Devolución', deposito: 'Depósito' };
+export const NOMBRE_TIPO = { compra: 'Compra', giro: 'Giro en cajero', cargo: 'Cargo', cuota: 'Cuotas por cobrar', pago: 'Pago de la tarjeta', aporte: 'Aporte', abono: 'Abono', devolucion: 'Devolución', deposito: 'Depósito' };
 export const TIPOS_DE = {
   fan: ['compra', 'giro', 'deposito'],
-  master: ['compra', 'cargo', 'abono', 'cuota'],
+  master: ['compra', 'pago', 'abono', 'cargo'],
   liderbci: ['compra', 'abono', 'devolucion'],
   copec: ['compra', 'abono', 'devolucion'],
 };
@@ -92,98 +95,194 @@ function cuentaVista(c, movs, hoy) {
   };
 }
 
-// Master: utilizado = saldo de partida + compras, cargos y cuotas por cobrar − abonos, desde el día «desde».
-// Las compras en cuotas ocupan todo su monto en el cupo hasta que se pagan; cada cuota se cobra en la facturación de
-// su mes, una por mes desde «prox» (la facturación cierra cerca del día 22).
-export const CIERRE = 22;
-export function proxDe(fecha) { const ym = fecha.slice(0, 7); return +fecha.slice(8, 10) <= CIERRE ? ym : sumarMesesYM(ym, 1); }
+/* ---------- Master ---------- */
+// Master se lleva como el estado de cuenta del banco, por facturaciones. Una facturación va del día siguiente al cierre
+// anterior hasta su cierre y se nombra por el mes del cierre: la de noviembre 2026 va del 23 oct al 20 nov.
+// En cuentas.json, la cuenta master guarda:
+//   cupo; inicio: desde qué día cuentan los movimientos (el día siguiente al estado de cuenta con que se empezó);
+//   deuda_inicial { monto, fecha }: cupo utilizado al empezar ese día (al cerrar una facturación pasa a ser el que
+//   informa el banco); facturaciones: las cerradas, con lo que informa el banco (la primera trae el detalle del
+//   estado de cuenta con que se empezó); cuotas: compras en cuotas anteriores al inicio que se siguen cobrando;
+//   proximo_cierre (opcional): si falta, el cierre se estima el mismo día del último cierre, un mes después.
+// Monto facturado (total a pagar) = saldo de la facturación anterior + pagos (negativos) + compras Titular + compras
+// Adicional (a una cuota) + cuotas de la facturación + cargos y abonos (abonos negativos). Es la cuenta del banco:
+// A + B + C + D + E + F + G. Las devoluciones son abonos, no pagos. Las compras en cuotas no son de Titular ni de
+// Adicional: ocupan todo su monto en el cupo y se cobran por cuotas desde la facturación siguiente a la de la compra,
+// como hace el banco (00/03 en el estado de cuenta de la compra), salvo que se elija otra.
+export const PLAZO_PAGO = 17;                 // pagar hasta ≈ cierre + 17 días (20 nov → 7 dic)
+const DIA_CIERRE = 20;                        // solo si todavía no hay ningún cierre guardado
+const ES_MES = /^\d{4}-\d{2}$/;
+const diasDelMes = (ym) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7), 0)).getUTCDate();
+export function mismoDia(fecha, meses, dia) { const ym = sumarMesesYM(fecha.slice(0, 7), meses); return ym + '-' + pad(Math.min(dia, diasDelMes(ym))); }
 export const esCuotas = (m) => m.tipo === 'cuota' || (m.tipo === 'compra' && (m.cuotas || 1) > 1);
-// Titular o Adicional: solo en las compras de Master a una cuota. Las compras en cuotas son una categoría aparte, sin
-// tarjeta, aunque el aviso del banco o un respaldo antiguo la traiga.
-export const tarjetaDe = (m) => (m.cuenta === 'master' && m.tipo === 'compra' && !esCuotas(m) ? (m.titular === 'Adicional' ? 'Adicional' : 'Titular') : '');
-// «Cuotas por cobrar» (tipo cuota) guarda solo las que faltan; si se anotó de cuántas era la compra (cuotas_total), la
-// numeración sigue la del banco: con 3 en total y 1 que falta, esa es la 3/3.
-export function desfaseCuotas(m) {
-  const n = Math.max(1, Math.round(m.cuotas) || 1), tot = Math.round(m.cuotas_total) || 0;
-  return m.tipo === 'cuota' && tot > n ? tot - n : 0;
+// Titular o Adicional: solo en las compras de Master a una cuota. Lo que se eligió al anotar (titular) y, si no, la
+// terminación del aviso del banco (****9908 Titular, ****4526 Adicional).
+export function tarjetaDe(m, c) {
+  if (m.cuenta !== 'master' || m.tipo !== 'compra' || esCuotas(m)) return '';
+  if (m.titular === 'Adicional' || m.titular === 'Titular') return m.titular;
+  const mapa = (c && c.tarjetas) || { 9908: 'T', 4526: 'A' };
+  return mapa[String(m.terminacion || '')] === 'A' ? 'Adicional' : 'Titular';
 }
-// Valor de la cuota k (desde 1): todas iguales, sin decimales; la última se lleva lo que sobra
-export function valorCuota(m, k) {
-  const n = Math.max(1, Math.round(m.cuotas) || 1), valor = Math.floor(m.monto / n);
-  return k >= n ? m.monto - valor * (n - 1) : valor;
+export function terminacionDe(c, quien) {
+  const mapa = (c && c.tarjetas) || { 9908: 'T', 4526: 'A' };
+  return Object.keys(mapa).find((k) => mapa[k] === quien) || '';
 }
-export function estadoCuotas(m, hoy) {
-  const n = Math.max(1, m.cuotas || 1), prox = m.prox || proxDe(m.fecha), valor = Math.floor(m.monto / n);
-  const hechas = Math.max(0, Math.min(n, mesesEntre(prox, proxDe(hoy))));
-  const cobrado = hechas >= n ? m.monto : hechas * valor, desfase = desfaseCuotas(m);
-  return { n, hechas, pendientes: n - hechas, valor, cobrado, pendiente: m.monto - cobrado, desfase, de: desfase + n,
-    siguiente: hechas < n ? sumarMesesYM(prox, hechas) : '', ultima: sumarMesesYM(prox, n - 1),
-    valorSiguiente: hechas < n ? (hechas + 1 === n ? m.monto - valor * (n - 1) : valor) : 0 };
+
+// Facturaciones cerradas, de la más antigua a la más nueva
+export function cerradas(c) {
+  return ((c && c.facturaciones) || []).filter((f) => f && esFecha(f.desde) && esFecha(f.hasta) && typeof f.facturado === 'number')
+    .slice().sort((a, b) => (a.hasta < b.hasta ? -1 : 1));
 }
+// Todas las facturaciones desde la primera cerrada hasta la que contiene «hasta»: las cerradas tal como las informó el
+// banco y después la en curso y las siguientes, con el cierre estimado (o el próximo cierre que se indicó).
+export function facturaciones(c, hasta) {
+  const out = cerradas(c).map((f) => Object.assign({}, f, { mes: f.hasta.slice(0, 7), cerrada: true, pagar_hasta: esFecha(f.pagar_hasta) ? f.pagar_hasta : sumarDias(f.hasta, PLAZO_PAGO) }));
+  if (!out.length) return out;
+  const dia = +out[out.length - 1].hasta.slice(8, 10);
+  let prev = out[out.length - 1].hasta;
+  for (let k = 0; k < 240; k++) {
+    const desde = sumarDias(prev, 1);
+    const fijo = k === 0 && esFecha(c.proximo_cierre) && c.proximo_cierre >= desde ? c.proximo_cierre : null;
+    const h = fijo || mismoDia(prev, 1, dia);
+    out.push({ mes: h.slice(0, 7), desde, hasta: h, cerrada: false, estimado: !fijo, pagar_hasta: sumarDias(h, PLAZO_PAGO) });
+    prev = h;
+    if (!esFecha(hasta) || h >= hasta) break;
+  }
+  return out;
+}
+export const facturacionDe = (lista, fecha) => lista.find((p) => fecha >= p.desde && fecha <= p.hasta) || null;
+// Mes de la facturación en que entra una fecha
+export function mesDeFacturacion(c, fecha) {
+  const p = facturacionDe(facturaciones(c, fecha), fecha);
+  if (p) return p.mes;
+  const ult = cerradas(c).pop(), dia = ult ? +ult.hasta.slice(8, 10) : DIA_CIERRE;
+  return +fecha.slice(8, 10) <= dia ? fecha.slice(0, 7) : sumarMesesYM(fecha.slice(0, 7), 1);
+}
+// El banco cobra la primera cuota en la facturación siguiente a la de la compra
+export const primeraPorDefecto = (c, fecha) => sumarMesesYM(mesDeFacturacion(c, fecha), 1);
+// Los movimientos que cuentan: los de Master desde el inicio
+export const movsMaster = (c, movs) => movs.filter((m) => m.cuenta === 'master' && (!esFecha(c && c.inicio) || m.fecha >= c.inicio));
+
+// Compras en cuotas: las anteriores al inicio (cuotas de la cuenta, del estado de cuenta) y las anotadas desde el inicio.
+// { id, origen ('inicial' o 'movimiento'), fecha, comercio, monto, n, primera (mes de la facturación de la cuota 1), valor }
+export function comprasEnCuotas(c, movs) {
+  const out = ((c && c.cuotas) || []).filter((q) => q && q.monto > 0 && q.cuotas >= 1 && ES_MES.test(String(q.primera || '')))
+    .map((q) => ({ id: q.id, origen: 'inicial', fecha: q.fecha, comercio: q.comercio, monto: q.monto, n: Math.round(q.cuotas), primera: q.primera, valor: q.valor > 0 ? q.valor : 0 }));
+  movsMaster(c, movs).filter(esCuotas).forEach((m) => {
+    const base = primeraPorDefecto(c, m.fecha);
+    // «prox» es de la versión anterior: se respeta solo si se eligió una facturación posterior a la que corresponde
+    const primera = ES_MES.test(String(m.primera || '')) ? m.primera : ES_MES.test(String(m.prox || '')) && m.prox > base ? m.prox : base;
+    out.push({ id: m.id, origen: 'movimiento', fecha: m.fecha, comercio: m.comercio || 'Compra en cuotas', monto: m.monto, n: Math.max(1, Math.round(m.cuotas) || 1), primera, valor: m.valor_cuota > 0 ? m.valor_cuota : 0 });
+  });
+  return out.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : String(a.id) < String(b.id) ? -1 : 1));
+}
+// Valor de la cuota k (desde 1): como el banco, cada una redondeada al peso y la última ajusta el total (200.000 en 3:
+// 66.667, 66.667 y 66.666). Si se anotó el valor de la cuota (compras con interés), todas valen eso.
+export function valorCuota(q, k) {
+  const n = Math.max(1, q.n || q.cuotas || 1);
+  if (q.valor > 0) return q.valor;
+  const v = Math.round(q.monto / n);
+  return k >= n ? q.monto - v * (n - 1) : v;
+}
+// Número de la cuota que se cobra en la facturación de un mes (0 si todavía no empieza, más que n si ya terminó)
+export const cuotaEn = (q, mes) => mesesEntre(q.primera, mes) + 1;
+export const totalCuotas = (q) => { let s = 0; for (let k = 1; k <= q.n; k++) s += valorCuota(q, k); return s; };
+
+// Estado de cuenta de una facturación (por su fecha de cierre «hasta»). Las cerradas con detalle (la del inicio) se
+// muestran tal como vienen del banco; las demás se arman con los movimientos. En una cerrada, el total es el monto
+// facturado que informó el banco y «diferencia» es lo que no cuadra con lo calculado.
+export function extractoMaster(c, movs, hasta, hoy) {
+  const lista = facturaciones(c, hasta > hoy ? hasta : hoy);
+  const i = lista.findIndex((p) => p.hasta === hasta);
+  return i < 0 ? null : armarExtracto(c, movs, lista, i);
+}
+const sec = () => ({ total: 0, filas: [] });
+function armarExtracto(c, movs, lista, i) {
+  const p = lista[i];
+  const ex = { desde: p.desde, hasta: p.hasta, mes: p.mes, cerrada: !!p.cerrada, estimado: !!p.estimado, inicial: !!p.inicial, pagar_hasta: p.pagar_hasta,
+    minimo: p.minimo || null, anterior: 0, mesAnterior: i > 0 ? lista[i - 1].mes : (p.detalle && p.detalle.mes_anterior) || sumarMesesYM(p.mes, -1),
+    pagos: sec(), titular: sec(), adicional: sec(), cuotas: sec(), cargos: sec(), nuevas: sec(), facturado: null, diferencia: 0, conDetalle: true };
+  const poner = (s, f) => { s.filas.push(f); s.total += f.monto; };
+  const orden = (a, b) => (a.fecha + (a.hora || '') < b.fecha + (b.hora || '') ? -1 : a.fecha + (a.hora || '') > b.fecha + (b.hora || '') ? 1 : String(a.id) < String(b.id) ? -1 : 1);
+  if (p.detalle) {
+    const d = p.detalle, filas = (xs) => (Array.isArray(xs) ? xs : []);
+    ex.anterior = d.anterior || 0;
+    filas(d.pagos).forEach((f, j) => poner(ex.pagos, Object.assign({ id: 'p' + j, tipo: 'pago' }, f)));
+    filas(d.titular).forEach((f, j) => poner(ex.titular, Object.assign({ id: 't' + j, tipo: 'compra' }, f)));
+    filas(d.adicional).forEach((f, j) => poner(ex.adicional, Object.assign({ id: 'a' + j, tipo: 'compra' }, f)));
+    filas(d.cuotas).forEach((f, j) => poner(ex.cuotas, Object.assign({ id: 'c' + j }, f)));
+    filas(d.cargos).forEach((f, j) => poner(ex.cargos, Object.assign({ id: 'g' + j, tipo: f.monto < 0 ? 'abono' : 'cargo' }, f)));
+    filas(d.nuevas).forEach((f, j) => poner(ex.nuevas, Object.assign({ id: 'n' + j, cuota: 0 }, f)));
+  } else {
+    ex.conDetalle = !p.inicial;
+    ex.anterior = i > 0 ? (lista[i - 1].cerrada ? lista[i - 1].facturado : armarExtracto(c, movs, lista, i - 1).total) : 0;
+    movsMaster(c, movs).filter((m) => m.fecha >= p.desde && m.fecha <= p.hasta).sort(orden).forEach((m) => {
+      if (esCuotas(m)) return;                                  // van en «cuotas» y en «nuevas»
+      const f = { id: m.id, fecha: m.fecha, hora: esHora(m.hora) ? m.hora : '', comercio: m.comercio || NOMBRE_TIPO[m.tipo] || m.tipo, tipo: m.tipo, monto: m.monto };
+      if (m.tipo === 'pago') poner(ex.pagos, Object.assign(f, { monto: -m.monto }));
+      else if (m.tipo === 'compra') poner(tarjetaDe(m, c) === 'Adicional' ? ex.adicional : ex.titular, f);
+      else if (signo(m) > 0) poner(ex.cargos, Object.assign(f, { tipo: 'abono', monto: -m.monto }));
+      else poner(ex.cargos, Object.assign(f, { tipo: 'cargo' }));
+    });
+    comprasEnCuotas(c, movs).forEach((q) => {
+      const k = cuotaEn(q, p.mes);
+      if (k >= 1 && k <= q.n) poner(ex.cuotas, { id: q.id, origen: q.origen, fecha: q.fecha, comercio: q.comercio, cuota: k, de: q.n, monto: valorCuota(q, k), montoCompra: q.monto });
+      if (q.fecha >= p.desde && q.fecha <= p.hasta)
+        poner(ex.nuevas, { id: q.id, origen: q.origen, fecha: q.fecha, comercio: q.comercio, monto: q.monto, de: q.n, valor: valorCuota(q, 1), primera: q.primera, cuota: k >= 1 ? k : 0 });
+    });
+    ex.cuotas.filas.sort(orden);
+  }
+  ex.calculado = ex.anterior + ex.pagos.total + ex.titular.total + ex.adicional.total + ex.cuotas.total + ex.cargos.total;
+  if (p.cerrada) { ex.facturado = p.facturado; ex.diferencia = p.facturado - ex.calculado; ex.total = p.facturado; } else ex.total = ex.calculado;
+  ex.n = ex.pagos.filas.length + ex.titular.filas.length + ex.adicional.filas.length + ex.cuotas.filas.length + ex.cargos.filas.length + ex.nuevas.filas.length;
+  return ex;
+}
+
+// Cupo utilizado = el de partida + compras (todo su monto, también en cuotas) y cargos − pagos y abonos desde ese día
+function utilizadoDesde(c, movs, hasta) {
+  const p = c.deuda_inicial, desde = p && p.fecha ? String(p.fecha).slice(0, 10) : null;
+  if (!desde) return null;
+  return movs.filter((m) => m.cuenta === 'master' && m.fecha >= desde && (!hasta || m.fecha <= hasta))
+    .reduce((s, m) => s + (signo(m) < 0 ? m.monto : -m.monto), p.monto);
+}
+export const utilizadoAl = (c, movs, fecha) => utilizadoDesde(c, movs, fecha);
+
 function masterVista(c, movs, hoy) {
   const ym = hoy.slice(0, 7);
   const propios = movs.filter((m) => m.cuenta === 'master');
-  const p = c.deuda_inicial, desde = p && p.fecha ? p.fecha.slice(0, 10) : null;
-  let utilizado = p ? p.monto : null;
-  const cuentan = desde ? propios.filter((m) => m.fecha >= desde) : [];
-  cuentan.forEach((m) => { utilizado += signo(m) < 0 ? m.monto : -m.monto; });
-  const cuotas = cuentan.filter(esCuotas).map((m) => ({ m, e: estadoCuotas(m, hoy) }));
-  const activas = cuotas.filter((x) => x.e.pendientes > 0);
-  const delMes = propios.filter((m) => mesDe(m) === ym);
-  const sal = delMes.filter((m) => signo(m) < 0);
-  return {
+  const p = c.deuda_inicial, desde = p && p.fecha ? String(p.fecha).slice(0, 10) : null;
+  const utilizado = utilizadoDesde(c, movs, null);
+  const delMes = propios.filter((m) => mesDe(m) === ym), sal = delMes.filter((m) => signo(m) < 0);
+  const v = {
     id: 'master', tipo: 'credito', definida: !!desde, desde, utilizado, cupo: c.cupo || null,
     disponible: c.cupo != null && utilizado != null ? c.cupo - utilizado : null, propios,
-    cuotas: activas, cuotasPendiente: activas.reduce((s, x) => s + x.e.pendiente, 0),
+    inicio: esFecha(c.inicio) && cerradas(c).length ? c.inicio : null, cuotas: [], cuotasPendiente: 0, lista: [],
     gastoMes: sal.reduce((s, m) => s + m.monto, 0),
-    titularMes: sal.filter((m) => tarjetaDe(m) === 'Titular').reduce((s, m) => s + m.monto, 0),
-    adicionalMes: sal.filter((m) => tarjetaDe(m) === 'Adicional').reduce((s, m) => s + m.monto, 0),
-    cargosMes: sal.filter((m) => m.tipo !== 'compra').reduce((s, m) => s + m.monto, 0),
+    titularMes: sal.filter((m) => tarjetaDe(m, c) === 'Titular').reduce((s, m) => s + m.monto, 0),
+    adicionalMes: sal.filter((m) => tarjetaDe(m, c) === 'Adicional').reduce((s, m) => s + m.monto, 0),
+    cargosMes: sal.filter((m) => m.tipo === 'cargo').reduce((s, m) => s + m.monto, 0),
     entradasMes: delMes.filter((m) => signo(m) > 0).reduce((s, m) => s + m.monto, 0),
   };
-}
-
-// Extracto de Master entre dos fechas, ambas incluidas (por defecto, la última facturación cerrada: del día 23 al 22).
-// Total a pagar = compras Titular + compras Adicional en una cuota + cuotas del periodo + cargos. Las compras en cuotas
-// no van por su monto: va cada cuota cuya facturación (cierre el día 22 de su mes) cae entre las dos fechas, con su
-// número (2/3). Los abonos se muestran aparte y no se restan: son pagos a la tarjeta. Cuentan las compras en cuotas de
-// cualquier fecha (también las anteriores al punto de partida): el banco sigue cobrando sus cuotas. La primera cuota va
-// en la facturación «prox» de la compra (por defecto, la de su fecha; se puede pasar a una siguiente). Si la compra es
-// de estas fechas y su primera cuota se cobra después, va igual en la lista, como 0/3 y $0, con «primera» = ese mes.
-export function periodoExtracto(hoy) {
-  const ym = hoy.slice(0, 7), cierre = +hoy.slice(8, 10) > CIERRE ? ym : sumarMesesYM(ym, -1);
-  return { desde: sumarMesesYM(cierre, -1) + '-' + pad(CIERRE + 1), hasta: cierre + '-' + pad(CIERRE) };
-}
-export const cierreDe = (ym) => ym + '-' + pad(CIERRE);
-export function extractoMaster(movs, desde, hasta) {
-  const orden = (a, b) => (momento(a) < momento(b) ? -1 : momento(a) > momento(b) ? 1 : String(a.id) < String(b.id) ? -1 : 1);
-  const propios = movs.filter((m) => m.cuenta === 'master').sort(orden);
-  const fila = (m) => ({ id: m.id, fecha: m.fecha, hora: esHora(m.hora) ? m.hora : '', comercio: m.comercio || NOMBRE_TIPO[m.tipo] || m.tipo, tipo: m.tipo,
-    tarjeta: tarjetaDe(m), monto: m.monto });
-  const seccion = () => ({ total: 0, filas: [] });
-  const ex = { desde, hasta, titular: seccion(), adicional: seccion(), cuotas: seccion(), cargos: seccion(), abonos: seccion() };
-  const poner = (sec, f) => { sec.filas.push(f); sec.total += f.monto; };
-  propios.filter((m) => m.fecha >= desde && m.fecha <= hasta && !esCuotas(m)).forEach((m) => {
-    if (m.tipo === 'compra') poner(tarjetaDe(m) === 'Adicional' ? ex.adicional : ex.titular, fila(m));
-    else if (signo(m) > 0) poner(ex.abonos, fila(m));
-    else poner(ex.cargos, fila(m));
-  });
-  propios.filter(esCuotas).forEach((m) => {
-    const n = Math.max(1, Math.round(m.cuotas) || 1), prox = m.prox || proxDe(m.fecha), off = desfaseCuotas(m);
-    let alguna = false;
-    for (let k = 1; k <= n; k++) {
-      const ym = sumarMesesYM(prox, k - 1), cierre = cierreDe(ym);
-      if (cierre < desde || cierre > hasta) continue;
-      alguna = true;
-      poner(ex.cuotas, Object.assign(fila(m), { cuota: off + k, de: off + n, facturacion: ym, monto: valorCuota(m, k), montoCompra: m.monto }));
-    }
-    if (!alguna && m.fecha >= desde && m.fecha <= hasta && cierreDe(prox) > hasta)
-      poner(ex.cuotas, Object.assign(fila(m), { cuota: off, de: off + n, facturacion: prox, monto: 0, montoCompra: m.monto, primera: prox }));
-  });
-  ex.cuotas.filas.sort((a, b) => (a.facturacion < b.facturacion ? -1 : a.facturacion > b.facturacion ? 1 : orden(a, b)));
-  ex.total = ex.titular.total + ex.adicional.total + ex.cuotas.total + ex.cargos.total;
-  ex.n = ex.titular.filas.length + ex.adicional.filas.length + ex.cuotas.filas.length + ex.cargos.filas.length;
-  return ex;
+  if (!v.inicio) return v;
+  v.lista = facturaciones(c, hoy);
+  v.ultima = v.lista.filter((f) => f.cerrada).pop();
+  v.enCurso = v.lista.find((f) => !f.cerrada);                  // la que se cierra a continuación
+  v.porCerrar = v.enCurso.hasta < hoy;                           // ya pasó su cierre y falta cerrarla con el banco
+  // Lo que hay que pagar: el último monto facturado menos los pagos hechos después de su cierre
+  const pagado = movsMaster(c, movs).filter((m) => m.tipo === 'pago' && m.fecha > v.ultima.hasta).reduce((s, m) => s + m.monto, 0);
+  v.porPagar = { hasta: v.ultima.hasta, mes: v.ultima.mes, facturado: v.ultima.facturado, minimo: v.ultima.minimo || null, pagar_hasta: v.ultima.pagar_hasta,
+    pagado, falta: Math.max(0, v.ultima.facturado - pagado) };
+  // Compras en cuotas con cuotas por facturar (las que no entraron en un estado de cuenta cerrado)
+  v.cuotas = comprasEnCuotas(c, movs).map((q) => {
+    const hechas = Math.max(0, Math.min(q.n, cuotaEn(q, v.ultima.mes)));
+    let pendiente = 0;
+    for (let k = hechas + 1; k <= q.n; k++) pendiente += valorCuota(q, k);
+    return { q, hechas, siguiente: hechas + 1, mesSiguiente: sumarMesesYM(q.primera, hechas), mesUltima: sumarMesesYM(q.primera, q.n - 1),
+      valorSiguiente: hechas < q.n ? valorCuota(q, hechas + 1) : 0, pendiente };
+  }).filter((x) => x.hechas < x.q.n).sort((a, b) => (a.mesSiguiente < b.mesSiguiente ? -1 : a.mesSiguiente > b.mesSiguiente ? 1 : a.q.fecha < b.q.fecha ? -1 : 1));
+  v.cuotasPendiente = v.cuotas.reduce((s, x) => s + x.pendiente, 0);
+  v.extracto = armarExtracto(c, movs, v.lista, v.lista.indexOf(v.enCurso));
+  return v;
 }
 
 // LiderBCI: total del periodo = compras − abonos y devoluciones desde el inicio del periodo. Puntos: 6 % en Lider,
@@ -233,6 +332,7 @@ export function mesInicial(cs, hoy) {
     if (!c) return;
     const f = (c.saldo_inicial && c.saldo_inicial.fecha) || (c.deuda_inicial && c.deuda_inicial.fecha) || c.periodo_desde;
     if (f) fechas.push(String(f).slice(0, 10));
+    if (esFecha(c.inicio)) fechas.push(c.inicio);
   });
   return fechas.sort()[0].slice(0, 7);
 }
@@ -313,7 +413,16 @@ export function avisos(E, P, hoy) {
   ['fan', 'copec'].forEach((id) => { if (E[id].definida && E[id].saldo < 0) out.push({ tono: 'neg', peso: 0, ir: id, texto: 'El saldo de ' + E[id].nombre + ' está en negativo' }); });
   const m = E.master;
   if (m.disponible != null && m.cupo && m.disponible < m.cupo * 0.1) out.push({ tono: m.disponible < 0 ? 'neg' : 'aviso', peso: 1, ir: 'master', texto: 'A Master le queda poco cupo: ' + pesos(m.disponible) });
-  ORDEN.forEach((id) => { if (id !== 'liderbci' && !E[id].definida) out.push({ tono: 'info', peso: 8, ir: id, texto: 'Falta el punto de partida de ' + E[id].nombre + ': trae su respaldo o ajusta el saldo' }); });
+  // Pago de la tarjeta: desde 7 días antes de la fecha límite, si falta pagar
+  if (m.porPagar && m.porPagar.falta > 0) {
+    const dias = Math.round((utc(m.porPagar.pagar_hasta) - utc(hoy)) / 86400000);
+    if (dias <= 7) out.push({ tono: dias < 0 ? 'neg' : 'aviso', peso: 2, ir: 'master', texto: (dias < 0 ? 'Venció el pago de Master: faltan ' : 'Pagar Master hasta el ' + fechaCorta(m.porPagar.pagar_hasta) + ': ') + pesos(m.porPagar.falta) });
+  }
+  if (m.porCerrar) out.push({ tono: 'info', peso: 5, ir: 'master', texto: 'Master: cierra la facturación de ' + nombreMes(m.enCurso.mes) + ' con el estado de cuenta del banco' });
+  ORDEN.forEach((id) => {
+    if (id === 'master' && !m.inicio) out.push({ tono: 'info', peso: 8, ir: id, texto: 'Empieza Master desde el estado de cuenta del banco' });
+    else if (id !== 'liderbci' && id !== 'master' && !E[id].definida) out.push({ tono: 'info', peso: 8, ir: id, texto: 'Falta el punto de partida de ' + E[id].nombre + ': trae su respaldo o ajusta el saldo' });
+  });
   const ym = hoy.slice(0, 7), titulo = tituloMes(ym);
   if (P.titulo && P.titulo !== titulo && P.total) out.push({ tono: 'aviso', peso: 3, ir: 'pagos', texto: 'Empieza ' + titulo + ' en Pagos del mes' });
   else if (P.pendientes && P.pendientes.length) {
@@ -356,7 +465,32 @@ const CAMBIOS = {
   importarMovimientos(lista, { movs }) { movs.forEach((m) => { if (!lista.some((x) => x.id === m.id)) lista.push(m); }); },
   // cuentas.json
   partida(d, { cuenta: id, campo, valor }) { cuentaDe(d, id)[campo] = valor; },
-  ajustesCuenta(d, { cuenta: id, valores }) { Object.assign(cuentaDe(d, id), valores); },
+  // «soloSinInicio»: el respaldo de la Master antigua no reemplaza un inicio hecho con el estado de cuenta
+  ajustesCuenta(d, { cuenta: id, valores, soloSinInicio }) { const c = cuentaDe(d, id); if (soloSinInicio && c.inicio) return; Object.assign(c, valores); },
+  // Master parte de nuevo desde un estado de cuenta: cupo, utilizado, la facturación cerrada y las cuotas por cobrar
+  iniciarMaster(d, { valores }) {
+    const c = cuentaDe(d, 'master');
+    Object.assign(c, { cupo: valores.cupo, inicio: valores.inicio, deuda_inicial: valores.deuda_inicial, facturaciones: valores.facturaciones, cuotas: valores.cuotas || [], proximo_cierre: null });
+  },
+  // Cierra la facturación en curso con lo que informa el banco. El cupo utilizado del banco pasa a ser el punto de
+  // partida desde el día siguiente al cierre; la partida anterior queda guardada para poder reabrirla.
+  cerrarFacturacion(d, { fact }) {
+    const c = cuentaDe(d, 'master');
+    const f = Object.assign({}, fact, { partida_previa: c.deuda_inicial || null });
+    c.facturaciones = (c.facturaciones || []).filter((x) => x.hasta !== f.hasta).concat(f).sort((a, b) => (a.hasta < b.hasta ? -1 : 1));
+    if (typeof f.utilizado === 'number') c.deuda_inicial = { monto: f.utilizado, fecha: sumarDias(f.hasta, 1) };
+    c.proximo_cierre = null;
+  },
+  reabrirFacturacion(d, { hasta }) {
+    const c = cuentaDe(d, 'master'), l = (c.facturaciones || []).slice().sort((a, b) => (a.hasta < b.hasta ? -1 : 1)), f = l[l.length - 1];
+    if (!f || f.hasta !== hasta || f.inicial) return;
+    c.facturaciones = l.slice(0, -1);
+    const puesta = typeof f.utilizado === 'number' ? { monto: f.utilizado, fecha: sumarDias(f.hasta, 1) } : null;
+    if (f.partida_previa !== undefined && (!puesta || JSON.stringify(c.deuda_inicial) === JSON.stringify(puesta))) c.deuda_inicial = f.partida_previa;
+    c.proximo_cierre = f.hasta;
+  },
+  cuotaInicial(d, { cuota }) { const c = cuentaDe(d, 'master'); c.cuotas = (c.cuotas || []).filter((x) => x.id !== cuota.id).concat(cuota); },
+  borrarCuotaInicial(d, { idCuota }) { const c = cuentaDe(d, 'master'); c.cuotas = (c.cuotas || []).filter((x) => x.id !== idCuota); },
   puntos(d, { mov }) { const c = cuentaDe(d, 'liderbci'); c.puntos_movimientos = (c.puntos_movimientos || []).filter((x) => x.id !== mov.id).concat(mov); },
   borrarPuntos(d, { idMov }) { const c = cuentaDe(d, 'liderbci'); c.puntos_movimientos = (c.puntos_movimientos || []).filter((x) => x.id !== idMov); },
   // Cierra el periodo de LiderBCI: sus puntos quedan guardados y el periodo siguiente parte desde «desde»
@@ -428,6 +562,7 @@ export function leerRespaldo(texto) {
   const t = String(texto || '').trim();
   if (/^MC1:/i.test(t)) return leerMisCreditos(t);
   try { d = JSON.parse(t); } catch (e) { return { error: 'El texto no es un respaldo. Cópialo de nuevo desde la app antigua.' }; }
+  if (d && d.app === 'master-estado') return leerEstadoMaster(d);
 
   if (d && (d.app === 'fan' || d.app === 'copec') && Array.isArray(d.movimientos)) {
     const app = d.app, c = d.cuenta || {};
@@ -464,7 +599,7 @@ export function leerRespaldo(texto) {
     });
     const cambios = porMes(movs);
     const partida = esFecha(c.desde) ? { monto: Math.round(+c.saldo) || 0, fecha: c.desde } : null;
-    cambios.unshift({ archivo: 'cuentas.json', cambio: { tipo: 'ajustesCuenta', cuenta: 'master', valores: { deuda_inicial: partida, cupo: +c.limit > 0 ? Math.round(+c.limit) : null } } });
+    cambios.unshift({ archivo: 'cuentas.json', cambio: { tipo: 'ajustesCuenta', cuenta: 'master', soloSinInicio: true, valores: { deuda_inicial: partida, cupo: +c.limit > 0 ? Math.round(+c.limit) : null } } });
     return { app: 'master', nombre: 'Master', cambios, resumen: movs.length + ' ' + plural(movs.length, 'movimiento', 'movimientos') + (partida ? ', saldo de partida ' + pesos(partida.monto) + ' desde el ' + fechaCorta(partida.fecha) : '') + (+c.limit > 0 ? ' y cupo ' + pesos(c.limit) : '') };
   }
 
@@ -504,6 +639,55 @@ export function leerRespaldo(texto) {
   }
   if (d && Array.isArray(d.cases)) return { error: 'Este es el respaldo de Maletas: se trae en la app Casa.' };
   return { error: 'No reconozco este respaldo. Sirven los de FAN, Master, LiderBCI, Copec, Pagos del mes, Mesadas y Mis créditos.' };
+}
+
+// Estado de cuenta de Master para empezar: { app: 'master-estado', v: 1, cupo, estado, cuotas }.
+// estado: { desde, hasta, pagar_hasta, facturado, minimo, utilizado, anterior: { desde, hasta, facturado },
+//   pagos, titular, adicional: [[fecha, descripción, monto]], cuotas: [[fecha, comercio, monto compra, n° cuota, de, valor cuota]],
+//   cargos: [[fecha, descripción, monto (abonos en negativo)]], nuevas: [[fecha, comercio, monto, cuotas, valor cuota]] }
+// cuotas: las compras en cuotas que se siguen cobrando después: [[fecha, comercio, monto, cuotas, primera (AAAA-MM), valor?]]
+// Las fechas van como AAAA-MM-DD. El monto facturado debe cuadrar con el detalle, como en el estado de cuenta del banco.
+export function valoresInicioMaster({ cupo, desde, hasta, pagar_hasta, facturado, minimo, utilizado, detalle, cuotas }) {
+  const fact = { mes: hasta.slice(0, 7), desde, hasta, pagar_hasta: esFecha(pagar_hasta) ? pagar_hasta : sumarDias(hasta, PLAZO_PAGO), facturado, utilizado, inicial: true, origen: 'banco' };
+  if (minimo > 0) fact.minimo = minimo;
+  if (detalle) fact.detalle = detalle;
+  const inicio = sumarDias(hasta, 1);
+  return { cupo, inicio, deuda_inicial: { monto: utilizado, fecha: inicio }, facturaciones: [fact], cuotas: cuotas || [] };
+}
+function leerEstadoMaster(d) {
+  const e = d.estado || {}, n = (v) => Math.round(+v);
+  const malo = (m) => ({ error: 'El estado de cuenta no se pudo leer: ' + m + '.' });
+  if (!(n(d.cupo) > 0)) return malo('falta el cupo');
+  if (!esFecha(e.desde) || !esFecha(e.hasta) || e.desde > e.hasta) return malo('faltan las fechas del periodo facturado');
+  if (!isFinite(+e.facturado) || !isFinite(+e.utilizado)) return malo('falta el monto facturado o el cupo utilizado');
+  const lista = (xs, campos) => (Array.isArray(xs) ? xs : []).map((x) => {
+    const o = {}; campos.forEach((k, i) => { o[k] = x[i]; }); return o;
+  }).filter((o) => esFecha(o.fecha) && isFinite(+o.monto));
+  const linea = (o) => ({ fecha: o.fecha, comercio: limpiar(o.comercio, 60), monto: n(o.monto) });
+  const anterior = e.anterior && isFinite(+e.anterior.facturado) ? n(e.anterior.facturado) : 0;
+  const detalle = {
+    anterior, mes_anterior: e.anterior && esFecha(e.anterior.hasta) ? e.anterior.hasta.slice(0, 7) : sumarMesesYM(e.hasta.slice(0, 7), -1),
+    pagos: lista(e.pagos, ['fecha', 'comercio', 'monto']).map((o) => Object.assign(linea(o), { monto: -Math.abs(n(o.monto)) })),
+    titular: lista(e.titular, ['fecha', 'comercio', 'monto']).map(linea),
+    adicional: lista(e.adicional, ['fecha', 'comercio', 'monto']).map(linea),
+    cuotas: lista(e.cuotas, ['fecha', 'comercio', 'montoCompra', 'cuota', 'de', 'monto']).map((o) => Object.assign(linea(o), { montoCompra: n(o.montoCompra), cuota: n(o.cuota), de: n(o.de) })),
+    cargos: lista(e.cargos, ['fecha', 'comercio', 'monto']).map(linea),
+    nuevas: lista(e.nuevas, ['fecha', 'comercio', 'monto', 'de', 'valor']).map((o) => Object.assign(linea(o), { de: n(o.de), valor: n(o.valor), cuota: 0, primera: sumarMesesYM(e.hasta.slice(0, 7), 1) })),
+  };
+  const suma = (xs) => xs.reduce((s, x) => s + x.monto, 0);
+  const calculado = anterior + suma(detalle.pagos) + suma(detalle.titular) + suma(detalle.adicional) + suma(detalle.cuotas) + suma(detalle.cargos);
+  if (calculado !== n(e.facturado)) return malo('el detalle suma ' + pesos(calculado) + ' y el monto facturado es ' + pesos(n(e.facturado)));
+  const cuotas = (Array.isArray(d.cuotas) ? d.cuotas : []).map((x, i) => ({ id: 'qi' + i + '-' + String(x[0]).replace(/-/g, ''), fecha: x[0], comercio: limpiar(x[1], 60), monto: n(x[2]), cuotas: n(x[3]), primera: x[4], ...(n(x[5]) > 0 ? { valor: n(x[5]) } : {}) }))
+    .filter((q) => esFecha(q.fecha) && q.monto > 0 && q.cuotas >= 1 && /^\d{4}-\d{2}$/.test(String(q.primera)));
+  const valores = valoresInicioMaster({ cupo: n(d.cupo), desde: e.desde, hasta: e.hasta, pagar_hasta: e.pagar_hasta, facturado: n(e.facturado), minimo: n(e.minimo) || 0, utilizado: n(e.utilizado), detalle, cuotas });
+  // ¿El cupo utilizado del banco es el facturado más las cuotas que faltan por facturar?
+  const mes = e.hasta.slice(0, 7);
+  const porFacturar = cuotas.reduce((s, q) => { const x = { monto: q.monto, n: q.cuotas, valor: q.valor || 0 }; let t = 0; for (let k = Math.max(1, mesesEntre(q.primera, mes) + 2); k <= q.cuotas; k++) t += valorCuota(x, k); return s + t; }, 0);
+  const cuadra = n(e.facturado) + porFacturar === n(e.utilizado);
+  const fin = fechaCorta(e.hasta) + ' ' + e.hasta.slice(0, 4);
+  return { app: 'master-estado', nombre: 'Master', cambios: [{ archivo: 'cuentas.json', cambio: { tipo: 'iniciarMaster', valores } }], cuadra,
+    resumen: 'el estado de cuenta al ' + fin + ': facturado ' + pesos(n(e.facturado)) + ', ' + detalle.titular.length + ' compras Titular, ' + detalle.adicional.length + ' Adicional, ' +
+      detalle.cuotas.length + ' ' + plural(detalle.cuotas.length, 'cuota', 'cuotas') + ' y ' + cuotas.length + ' ' + plural(cuotas.length, 'compra en cuotas por cobrar', 'compras en cuotas por cobrar') };
 }
 
 // Código «MC1:» de Mis créditos: JSON en base64 (url) con una huella de control al final

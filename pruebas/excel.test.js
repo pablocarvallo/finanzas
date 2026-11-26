@@ -27,105 +27,70 @@ function leerZip(u8) {
   return out;
 }
 
+// Estado de cuenta ficticio con la forma del banco y una facturación de diciembre con movimientos
+const estado = { app: 'master-estado', v: 1, cupo: 1000000,
+  estado: { desde: '2026-10-23', hasta: '2026-11-20', pagar_hasta: '2026-12-07', facturado: 51166, minimo: 9000, utilizado: 241166,
+    anterior: { desde: '2026-09-23', hasta: '2026-10-22', facturado: 300000 },
+    pagos: [['2026-10-30', 'MONTO CANCELADO', -350000]],
+    titular: [['2026-10-24', 'Café & <Té>', 10000], ['2026-11-04', 'Bencina', 20000]],
+    adicional: [['2026-10-29', 'Farmacia', 5000]],
+    cuotas: [['2026-08-14', 'Viaje', 200000, 3, 3, 66666]],
+    cargos: [['2026-11-16', 'Devolución tienda', -1000], ['2026-11-02', 'Impuesto de timbres', 500]],
+    nuevas: [['2026-10-31', 'Tienda', 90000, 3, 30000], ['2026-11-14', 'Colegio', 100000, 3, 33333]] },
+  cuotas: [['2026-10-31', 'Tienda', 90000, 3, '2026-12'], ['2026-11-14', 'Colegio', 100000, 3, '2026-12']] };
+const cuentaMaster = () => F.cuenta(F.aplicar('cuentas.json', null, F.leerRespaldo(JSON.stringify(estado)).cambios[0].cambio), 'master');
 const movs = [
-  { id: 'a', cuenta: 'master', fecha: '2026-10-22', hora: '10:00', comercio: 'Fuera antes', monto: 1000, tipo: 'compra', titular: 'Titular' },
-  { id: 'b', cuenta: 'master', fecha: '2026-10-23', hora: '09:15', comercio: 'Café & <Té>', monto: 4500, tipo: 'compra', titular: 'Titular' },
-  { id: 'c', cuenta: 'master', fecha: '2026-11-02', hora: '', comercio: 'Falabella TV', monto: 359880, tipo: 'compra', titular: 'Adicional', cuotas: 12, prox: '2026-11' },
-  { id: 'd', cuenta: 'master', fecha: '2026-11-10', hora: '08:00', comercio: 'Comisión mensual', monto: 3490, tipo: 'cargo' },
-  { id: 'e', cuenta: 'master', fecha: '2026-11-15', hora: '12:00', comercio: 'Pago tarjeta', monto: 200000, tipo: 'abono' },
-  // Cuotas por cobrar: falta 1 de 3 (la 3/3 en noviembre) y faltan 2 de las que no se anotó el total
-  { id: 'f', cuenta: 'master', fecha: '2026-10-23', hora: '', comercio: 'SII', monto: 57980, tipo: 'cuota', titular: 'Titular', cuotas: 1, cuotas_total: 3, prox: '2026-11' },
-  { id: 'g', cuenta: 'master', fecha: '2026-10-23', hora: '', comercio: 'Turistik', monto: 100001, tipo: 'cuota', titular: 'Titular', cuotas: 2, prox: '2026-10' },
-  // Compra en 3 cuotas el 14 sep: 1/3 en sep, 2/3 en oct, 3/3 en nov
-  { id: 'h', cuenta: 'master', fecha: '2026-09-14', hora: '14:45', comercio: 'Colegio', monto: 310000, tipo: 'compra', titular: 'Titular', cuotas: 3 },
-  // Compra en 6 cuotas el 1 ago: la 4/6 se factura en noviembre
-  { id: 'i', cuenta: 'master', fecha: '2026-08-01', hora: '', comercio: 'Agosto', monto: 90000, tipo: 'compra', titular: 'Titular', cuotas: 6 },
-  { id: 'j', cuenta: 'fan', fecha: '2026-11-03', hora: '11:00', comercio: 'Otra cuenta', monto: 7000, tipo: 'compra' },
-  { id: 'k', cuenta: 'master', fecha: '2026-11-22', hora: '23:59', comercio: 'Último día', monto: 1500, tipo: 'compra', titular: 'Adicional' },
-  { id: 'l', cuenta: 'master', fecha: '2026-11-23', hora: '00:01', comercio: 'Fuera después', monto: 2000, tipo: 'compra' },
-  // Compra en cuotas el 25 nov: su primera cuota es de diciembre
-  { id: 'm', cuenta: 'master', fecha: '2026-11-25', hora: '', comercio: 'Después del cierre', monto: 30000, tipo: 'compra', titular: 'Titular', cuotas: 3 },
-  // Compra en 3 cuotas del 31 oct cuya primera cuota se pasó a la facturación siguiente (diciembre)
-  { id: 'n', cuenta: 'master', fecha: '2026-10-31', hora: '18:52', comercio: 'Amazon', monto: 70534, tipo: 'compra', cuotas: 3, prox: '2026-12' },
+  { id: 'master|t1', cuenta: 'master', fecha: '2026-11-22', hora: '10:00', comercio: 'Supermercado', monto: 20000, tipo: 'compra', terminacion: '9908' },
+  { id: 'master|a1', cuenta: 'master', fecha: '2026-11-23', hora: '11:00', comercio: 'Cafetería', monto: 7000, tipo: 'compra', terminacion: '4526' },
+  { id: 'master|c1', cuenta: 'master', fecha: '2026-11-25', hora: '12:00', comercio: 'Muebles', monto: 60000, tipo: 'compra', cuotas: 3 },
+  { id: 'master-p1', cuenta: 'master', fecha: '2026-12-05', hora: '', comercio: 'Pago estado de cuenta', monto: 51166, tipo: 'pago' },
+  { id: 'master|d1', cuenta: 'master', fecha: '2026-12-06', hora: '09:00', comercio: 'Reversa Cafetería', monto: 2000, tipo: 'devolucion' },
 ];
-const ids = (sec) => sec.filas.map((f) => f.id + (f.cuota ? ':' + f.cuota + '/' + f.de : '') + '=' + f.monto);
+const textos = (sst) => [...sst.matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((x) => x[1]);
 
-test('extracto: total a pagar con compras de una cuota, cuotas del periodo con su número y cargos; abonos aparte', () => {
-  const ex = F.extractoMaster(movs, '2026-10-23', '2026-11-22');
-  assert.deepEqual(ids(ex.titular), ['b=4500']);
-  assert.deepEqual(ids(ex.adicional), ['k=1500']);
-  assert.deepEqual(ids(ex.cuotas), ['i:4/6=15000', 'h:3/3=103334', 'f:3/3=57980', 'g:2/2=50001', 'c:1/12=29990', 'n=0']);
-  // La de Amazon va como 0/3 y $0, con el mes de su primera cuota
-  const amazon = ex.cuotas.filas.find((f) => f.id === 'n');
-  assert.deepEqual([amazon.cuota, amazon.de, amazon.monto, amazon.primera], [0, 3, 0, '2026-12']);
-  assert.deepEqual(ids(ex.cargos), ['d=3490']);
-  assert.deepEqual(ids(ex.abonos), ['e=200000']);
-  assert.equal(ex.cuotas.total, 15000 + 50001 + 103334 + 57980 + 29990);
-  assert.equal(ex.total, 4500 + 1500 + ex.cuotas.total + 3490);
-  assert.equal(ex.n, 9);
-  // Las compras en cuotas no son de Titular ni de Adicional, aunque el movimiento traiga la tarjeta
-  assert.equal(ex.cuotas.filas.find((f) => f.id === 'c').tarjeta, '');
-  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', titular: 'Adicional', cuotas: 3 }), '');
-  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra', titular: 'Adicional', cuotas: 1 }), 'Adicional');
-  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'compra' }), 'Titular');
-  assert.equal(F.tarjetaDe({ cuenta: 'master', tipo: 'cuota', titular: 'Titular', cuotas: 2 }), '');
-  // Varios meses: cada cuota en su facturación
-  const largo = F.extractoMaster(movs, '2026-09-01', '2026-10-31');
-  // Las del 23 y 31 oct (SII y Amazon) empiezan a cobrarse después del 31 oct: van con $0
-  assert.deepEqual(ids(largo.cuotas), ['i:2/6=15000', 'h:1/3=103333', 'i:3/6=15000', 'h:2/3=103333', 'g:1/2=50000', 'f:2/3=0', 'n=0']);
-  assert.equal(F.extractoMaster(movs, '2026-12-01', '2026-12-31').cuotas.filas.map((f) => f.id + ':' + f.cuota).join(), 'i:5,n:1,c:2,m:1');
-  // En la facturación siguiente, Amazon ya va como 1/3 por un tercio
-  assert.deepEqual(ids(F.extractoMaster(movs, '2026-11-23', '2026-12-22').cuotas).filter((x) => x.startsWith('n')), ['n:1/3=23511']);
-});
-
-test('cuotas: valor de cada una, número con el total anotado y estado', () => {
-  const m = { monto: 100001, cuotas: 3 };
-  assert.deepEqual([1, 2, 3].map((k) => F.valorCuota(m, k)), [33333, 33333, 33335]);
-  assert.equal(F.desfaseCuotas({ tipo: 'cuota', cuotas: 1, cuotas_total: 3 }), 2);
-  assert.equal(F.desfaseCuotas({ tipo: 'compra', cuotas: 3, cuotas_total: 6 }), 0);
-  assert.equal(F.desfaseCuotas({ tipo: 'cuota', cuotas: 2 }), 0);
-  const e = F.estadoCuotas({ fecha: '2026-10-23', tipo: 'cuota', monto: 57980, cuotas: 1, cuotas_total: 3, prox: '2026-11' }, '2026-11-10');
-  assert.equal(e.desfase + e.hechas + 1, 3);
-  assert.equal(e.de, 3);
-});
-
-test('extracto: por defecto, la última facturación cerrada (23 al 22)', () => {
-  assert.deepEqual(F.periodoExtracto('2026-11-26'), { desde: '2026-10-23', hasta: '2026-11-22' });
-  assert.deepEqual(F.periodoExtracto('2026-11-22'), { desde: '2026-09-23', hasta: '2026-10-22' });
-  assert.deepEqual(F.periodoExtracto('2026-01-05'), { desde: '2025-11-23', hasta: '2025-12-22' });
-  assert.deepEqual(F.periodoExtracto('2026-01-23'), { desde: '2025-12-23', hasta: '2026-01-22' });
-});
-
-test('Excel: ZIP válido con el extracto en el orden de la app', () => {
-  const ex = F.extractoMaster(movs, '2026-10-23', '2026-11-22');
-  const z = leerZip(X.extractoXlsx(ex, { generado: '26 nov 2026, 11:05', cupo: 2000000, utilizado: 589360, disponible: 1410640, enCuotas: 329890 }, new Date(2026, 10, 26, 11, 5)));
+test('Excel: estado de cuenta con el detalle del banco, en el orden del banco', () => {
+  const ex = F.extractoMaster(cuentaMaster(), [], '2026-11-20', '2026-11-26');
+  const z = leerZip(X.extractoXlsx(ex, { generado: '26 nov 2026, 11:05', cupo: 1000000, utilizado: 241166, disponible: 758834, enCuotas: 190000, titular: '9908', adicional: '4526' }, new Date(2026, 10, 26, 11, 5)));
   assert.deepEqual(Object.keys(z).sort(), ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/sharedStrings.xml', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml']);
-  assert.match(z['xl/workbook.xml'], /<sheet name="Extracto" sheetId="1" r:id="rId1"\/>/);
-  const sst = z['xl/sharedStrings.xml'], hoja = z['xl/worksheets/sheet1.xml'];
+  assert.match(z['xl/workbook.xml'], /<sheet name="Estado de cuenta" sheetId="1" r:id="rId1"\/>/);
+  const sst = z['xl/sharedStrings.xml'], hoja = z['xl/worksheets/sheet1.xml'], t = textos(sst);
   assert.match(sst, /Café &amp; &lt;Té&gt;/);
-  assert.match(sst, /Del 23 oct 2026 al 22 nov 2026 · generado el 26 nov 2026, 11:05/);
-  // Orden de los bloques
-  const texto = [...sst.matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((x) => x[1]);
-  const pos = (t) => texto.indexOf(t);
-  assert.ok(pos('Total a pagar') < pos('Compras Titular') && pos('Compras Titular') < pos('Compras Adicional') && pos('Compras Adicional') < pos('Cuotas del periodo') && pos('Cuotas del periodo') < pos('Cargos'));
-  assert.ok(texto.includes('3/3') && texto.includes('1/12') && texto.includes('0/3') && texto.includes('Falabella TV') && !texto.some((t) => / · Adicional/.test(t)));
-  assert.ok(texto.includes('Amazon (primera cuota en diciembre 2026)'));
-  // Total a pagar: suma de los totales de cada bloque (sin abonos), con su valor ya calculado
-  assert.match(hoja, new RegExp('<c r="D4" s="9"><f>D6\\+D10\\+D14\\+D23</f><v>' + ex.total + '</v></c>'));
-  assert.match(hoja, /<c r="D6" s="10"><f>SUM\(D8:D8\)<\/f><v>4500<\/v><\/c>/);
-  assert.match(hoja, new RegExp('<c r="D14" s="10"><f>SUM\\(D16:D21\\)</f><v>' + ex.cuotas.total + '</v></c>'));
-  assert.match(hoja, /<c r="A8" s="4"><v>46318<\/v><\/c>/);
-  assert.match(sst, /Abonos \(pagos a la tarjeta; no se restan\)/);
-  assert.match(hoja, /<v>1410640<\/v>/);
+  assert.ok(t.includes('Periodo del 23 oct 2026 al 20 nov 2026 · pagar hasta el 7 dic 2026 · generado el 26 nov 2026, 11:05'));
+  const pos = (x) => t.indexOf(x);
+  // Resumen y bloques: Titular, Adicional, Cuotas, Cargos y abonos, Pagos; al final, las compras en cuotas (no se suman)
+  assert.ok(pos('Monto facturado a pagar') < pos('Resumen') && pos('Resumen') < pos('Saldo anterior (facturado en octubre 2026)'));
+  const encabezados = [...hoja.matchAll(/<c r="A\d+" s="1" t="s"><v>(\d+)<\/v><\/c>/g)].map((x) => t[+x[1]]);
+  assert.deepEqual(encabezados, ['Resumen', 'Compras Titular ****9908', 'Compras Adicional ****4526', 'Cuotas', 'Cargos y abonos', 'Pagos',
+    'Compras en cuotas de esta facturación (no se suman: se cobran por cuotas)', 'Estado de la tarjeta al generar']);
+  assert.ok(t.includes('3/3 de $200.000') && t.includes('Abono') && t.includes('0/3 · 3 × $30.000 desde dic 2026'));
+  // Total: saldo anterior + cada bloque del resumen, con su valor ya calculado; cada fila del resumen apunta a su bloque
+  assert.match(hoja, /<c r="D4" s="9"><f>D8\+D9\+D10\+D11\+D12\+D13<\/f><v>51166<\/v><\/c>/);
+  assert.match(hoja, /<c r="D5" s="2"><v>9000<\/v><\/c>/);
+  assert.match(hoja, /<c r="D8" s="2"><v>300000<\/v><\/c>/);
+  assert.match(hoja, /<c r="D10" s="2"><f>D15<\/f><v>30000<\/v><\/c>/);
+  assert.match(hoja, /<c r="D15" s="10"><f>SUM\(D17:D18\)<\/f><v>30000<\/v><\/c>/);
+  assert.match(hoja, /<c r="A17" s="4"><v>46319<\/v><\/c>/);
+  assert.match(hoja, /<v>-350000<\/v>/);
+  assert.match(hoja, /<v>758834<\/v>/);
+  assert.equal(X.nombreExtracto(ex), 'Estado de cuenta Master 2026-11.xlsx');
 });
 
-test('Excel: extracto sin movimientos y sin estado de la tarjeta', () => {
-  const ex = F.extractoMaster([], '2026-12-01', '2026-12-31');
+test('Excel: facturación en curso armada con los movimientos', () => {
+  const c = cuentaMaster(), ex = F.extractoMaster(c, movs, '2026-12-20', '2026-12-10');
+  assert.deepEqual([ex.cerrada, ex.estimado, ex.total], [false, true, 51166 - 51166 + 20000 + 7000 + 63333 - 2000]);
   const z = leerZip(X.extractoXlsx(ex));
-  assert.match(z['xl/sharedStrings.xml'], /Sin movimientos/);
-  assert.doesNotMatch(z['xl/sharedStrings.xml'], /Estado de la tarjeta|Cargos|Abonos/);
-  assert.match(z['xl/worksheets/sheet1.xml'], /<c r="D4" s="9"><f>D6\+D10\+D14<\/f><v>0<\/v><\/c>/);
-  assert.equal(X.nombreExtracto(ex), 'Extracto Master 2026-12-01 al 2026-12-31.xlsx');
+  const t = textos(z['xl/sharedStrings.xml']);
+  assert.ok(t.includes('Total a pagar estimado'));
+  assert.ok(t.some((x) => /^Periodo del 21 nov 2026 al 20 dic 2026 \(cierre estimado\) · en curso$/.test(x)));
+  assert.ok(t.includes('Reversa Cafetería') && t.includes('Pago estado de cuenta') && t.includes('1/3 de $90.000') && t.includes('0/3 · 3 × $20.000 desde ene 2027'));
+  assert.doesNotMatch(z['xl/sharedStrings.xml'], /Estado de la tarjeta/);
+  assert.equal(X.nombreExtracto(ex), 'Estado de cuenta Master 2026-12 en curso.xlsx');
+  // El estado de cuenta con que se empezó a mano no trae detalle: solo el total
+  const manual = F.valoresInicioMaster({ cupo: 1000000, desde: '2026-10-23', hasta: '2026-11-20', pagar_hasta: '2026-12-07', facturado: 51166, utilizado: 241166 });
+  const cm = F.cuenta(F.aplicar('cuentas.json', null, { tipo: 'iniciarMaster', valores: manual }), 'master');
+  const exm = F.extractoMaster(cm, [], '2026-11-20', '2026-11-26');
+  assert.deepEqual([exm.total, exm.conDetalle], [51166, false]);
+  assert.match(leerZip(X.extractoXlsx(exm))['xl/worksheets/sheet1.xml'], /<c r="D4" s="9"><f>D7\+D8\+D9\+D10\+D11\+D12\+D13<\/f><v>51166<\/v><\/c>/);
 });
 
 test('Excel: columnas, nombres de hoja, autofiltro y hoja apaisada', () => {
