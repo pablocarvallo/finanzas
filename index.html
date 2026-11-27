@@ -772,12 +772,11 @@ function tarjetaCuenta(id, e) {
 }
 function vistaResumen() {
   const D = datos(), { E, h } = D, ym = h.slice(0, 7);
-  const tarjetas = E.master.gastoMes + E.liderbci.gastoMes, cuentas = E.fan.gastoMes + E.copec.gastoMes, total = cuentas + tarjetas + D.M.mes;
   const todos = F.avisos(E, D.P, h);
   const urgentes = todos.filter((x) => x.tono !== 'info'), info = todos.filter((x) => x.tono === 'info');
-  let html = heroe('Gastado en ' + F.nombreMes(ym), F.pesos(total), [['Cuentas', F.pesos(cuentas)], ['Tarjetas', F.pesos(tarjetas)], ['Mesadas', F.pesos(D.M.mes)]]);
+  // Arriba, los totales de las cuatro cuentas (sin recuadro de gastado en el mes)
+  let html = seccion('Cuentas', '<a href="#" data-a="tab" data-t="cuentas">Detalle</a>') + '<div class="c-rejilla">' + F.ORDEN.map((id) => tarjetaCuenta(id, E[id])).join('') + '</div>';
   if (urgentes.length) html += seccion('Avisos') + listaAvisos(urgentes);
-  html += seccion('Cuentas', '<a href="#" data-a="tab" data-t="cuentas">Detalle</a>') + '<div class="c-rejilla">' + F.ORDEN.map((id) => tarjetaCuenta(id, E[id])).join('') + '</div>';
   const T = D.CR.total;
   html += seccion('Mesadas y créditos') + '<ul class="d-lista d-vidrio">' +
     fila({ icono: 'alcancia', titulo: 'Mesadas', sub: D.M.personas.map((p) => p + ' ' + F.pesos(D.M.por[p].mes)).join(' · ') + ' en ' + F.nombreMes(ym), valor: F.pesos(D.M.mes), a: 'tab', attrs: 'data-t="mesadas"', chev: true }) +
@@ -916,7 +915,7 @@ function vistaMesadas() {
   const D = datos(), M = D.M, h = D.h, ym = h.slice(0, 7);
   let html = heroe('Entregado en ' + F.nombreMes(ym), F.pesos(M.mes), M.personas.map((p) => [p, F.pesos(M.por[p].mes)]));
   html += '<div class="c-dos">' + M.personas.map((p) => `<article class="d-vidrio c-hija"><span class="c-cuenta-etq">${p} · en total</span><div class="c-cuenta-cifra">${F.pesos(M.por[p].total)}</div><div class="c-cuenta-det">${M.por[p].n} ${F.plural(M.por[p].n, 'aporte', 'aportes')}</div></article>`).join('') + '</div>';
-  html += `<p class="c-texto">Total entregado a las dos: <b>${F.pesos(M.total)}</b>. Lo del mes se suma a lo gastado en el Resumen.</p>`;
+  html += `<p class="c-texto">Total entregado a las dos: <b>${F.pesos(M.total)}</b>.</p>`;
   html += '<div class="c-acciones"><button class="d-boton" data-a="hoja" data-h="aporte">Anotar aporte</button></div>';
   const filtro = M.personas.includes(ui.hija) ? ui.hija : '';
   html += seccion('Historial') + `<div class="d-segmentos c-segmentos" role="group" aria-label="Filtrar" style="margin-top:0;margin-bottom:12px">` +
@@ -1222,7 +1221,7 @@ function contenidoHoja() {
     '<p><b>Cerrar la facturación</b>: cuando llega el estado de cuenta, copia el monto facturado y el cupo utilizado. Si no cuadran con lo calculado, el extracto muestra la diferencia. Disponible = cupo − utilizado.</p>' +
     '<h3>LiderBCI</h3><p>Se anota a mano. Total del periodo = compras − abonos y devoluciones. Puntos: 6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto. Al pagar, «Cerrar periodo» guarda los puntos y deja el total en cero. Al tocar «Puntos» en el recuadro se abre su detalle, con los canjes y ajustes.</p>' +
     '<h3>Pagos del mes</h3><p>La lista de pagos de cada mes, en dos secciones. Avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.</p>' +
-    '<h3>Mesadas</h3><p>Los aportes a Piti y Emi, con su asunto. Lo entregado en el mes se suma a lo gastado en el Resumen.</p>' +
+    '<h3>Mesadas</h3><p>Los aportes a Piti y Emi, con su asunto. En el Resumen se ve lo entregado en el mes.</p>' +
     '<h3>Mis créditos</h3><p>Se ingresan a mano. Saldo = valor presente de las cuotas que faltan con la tasa del crédito (la anual se divide por 12), más el ajuste; cada crédito se redondea a $10.000 y el total de consumo a $100.000. El hipotecario va en UF y no se suma al total. Las deudas con abonos no tienen interés: pendiente menos abonos.</p>' +
     '<h3>Dónde se guarda</h3><p>En GitHub (pablocarvallo/datos), a través de la función domesticas-api, con la llave de este iPhone. Sin conexión, los cambios esperan en el iPhone.</p>' +
     '<div class="c-pila"><button class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';

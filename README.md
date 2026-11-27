@@ -6,8 +6,8 @@ Mis créditos.
 
 ## Pestañas
 
-- **Resumen**: gastado en el mes (cuentas, tarjetas y mesadas), avisos, las cuatro cuentas, mesadas y créditos, y los
-  últimos movimientos. Desde ahí se abren Mesadas y Mis créditos.
+- **Resumen**: las cuatro cuentas con su total, avisos, mesadas y créditos, y los últimos movimientos. Desde ahí se
+  abren Mesadas y Mis créditos.
 - **Cuentas**: FAN, Master, LiderBCI y Copec con su saldo, utilizado o total del periodo y movimientos. Master se lleva
   como el estado de cuenta del banco (ver «Master» más abajo). LiderBCI: al tocar «Puntos» en el recuadro se abre su
   detalle, con canjes y ajustes. Se anotan movimientos a mano y se ajusta el punto de partida.
@@ -46,7 +46,7 @@ Las de las apps antiguas (pruebas en `pruebas/calculos.test.js`):
 - LiderBCI: compras − abonos y devoluciones del periodo; puntos 6 % Lider, 0 % Jumbo, Unimarc, Tottus, Santa Isabel, El 9
   y Don Salva, 1 % el resto; «Cerrar periodo» guarda los puntos.
 - Pagos: avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.
-- Mesadas: lo entregado en el mes se suma a lo gastado en el Resumen.
+- Mesadas: lo entregado en el mes se ve en el Resumen.
 - Mis créditos: saldo = valor presente de las cuotas que faltan + ajuste, redondeado a $10.000 (total de consumo a
   $100.000); hipotecario en UF, fuera del total; deudas con abonos = pendiente − abonos.
 
