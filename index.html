@@ -405,6 +405,47 @@ body.en-maletas .c-desvanecer { display: none; }
 .c-fila-total .d-valor { font-size: 19px; }
 .c-hoja .c-segmentos--hoja { margin: 10px 0 4px; }
 .c-hoja .c-ext-cab b .d-valor--positivo { color: var(--positivo); }
+/* Mis créditos: cada crédito abre su propia página, a pantalla completa y sin la barra de pestañas */
+body.en-detalle .c-pie, body.en-detalle .c-desvanecer { display: none; }
+body.en-detalle .c-contenido { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+.d-cabecera h1.c-h1-detalle { overflow-wrap: anywhere; }
+.d-cabecera h1.c-h1-largo { font-size: 27px; line-height: 33px; }
+.c-avance { margin: 12px 16px 0; padding: 20px 20px 18px; --pista: color-mix(in srgb, var(--acento) 16%, transparent); }
+.c-dona { position: relative; width: 184px; height: 184px; margin: 2px auto 0; display: grid; place-items: center; }
+.c-dona svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.c-dona .c-pista { stroke: var(--pista); }
+.c-dona .c-arco { stroke: var(--acento); }
+.c-dona-centro { position: relative; text-align: center; }
+.c-dona-centro b { display: block; font: 700 42px/46px var(--font-rounded); letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+.c-dona-centro span { display: block; font: 400 15px/20px var(--font-sans); color: var(--tinta-2); }
+.c-leyenda { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 22px; margin-top: 14px; font: 400 15px/20px var(--font-sans); color: var(--tinta-2); }
+.c-leyenda span { display: inline-flex; align-items: center; gap: 7px; }
+.c-leyenda b { color: var(--tinta); font: 600 15px/20px var(--font-rounded); font-variant-numeric: tabular-nums; }
+.c-muestra { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--acento); }
+.c-muestra--falta { background: var(--pista); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acento) 35%, transparent); }
+.c-medidor { margin-top: 18px; padding-top: 16px; border-top: .5px solid var(--separador); }
+.c-medidor-cab, .c-medidor-pie { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.c-medidor-cab span { font: 600 15px/20px var(--font-sans); }
+.c-medidor-cab b { font: 600 17px/22px var(--font-rounded); font-variant-numeric: tabular-nums; }
+.c-medidor-barra { height: 8px; margin: 8px 0 7px; border-radius: 4px; background: var(--pista); overflow: hidden; }
+.c-medidor-barra i { display: block; height: 100%; border-radius: 4px; background: var(--acento); }
+.c-medidor-pie { font: 400 13px/18px var(--font-sans); color: var(--tinta-2); }
+.c-medidor-pie b { color: var(--tinta); font-weight: 600; font-variant-numeric: tabular-nums; }
+.c-botones { display: grid; gap: 10px; margin: 16px 16px 0; }
+.c-botones .d-boton { width: 100%; }
+/* Paso entre la lista y la página del crédito, como en iOS */
+.c-avanzar { animation: c-avanzar .34s cubic-bezier(.2, .9, .25, 1) both; }
+.c-retroceder { animation: c-retroceder .3s cubic-bezier(.2, .9, .25, 1) both; }
+.c-avanzar .c-dona .c-arco { animation: c-dibujar .7s .12s cubic-bezier(.3, .7, .3, 1) both; }
+.c-avanzar .c-medidor-barra i { animation: c-llenar .7s .12s cubic-bezier(.3, .7, .3, 1) both; }
+@keyframes c-avanzar { from { transform: translateX(30%); opacity: 0; } }
+@keyframes c-retroceder { from { transform: translateX(-16%); opacity: 0; } }
+@keyframes c-dibujar { from { stroke-dasharray: 0 var(--c); } }
+@keyframes c-llenar { from { width: 0; } }
+@media (prefers-reduced-motion: reduce) { .c-avanzar, .c-retroceder, .c-avanzar .c-dona .c-arco, .c-avanzar .c-medidor-barra i { animation: none; } }
+[data-theme="dark"] .c-avance { --pista: color-mix(in srgb, var(--acento) 24%, transparent); }
+[data-skin="tinta"] .c-avance { --pista: var(--separador); }
+[data-skin="tinta"] .c-muestra--falta { box-shadow: inset 0 0 0 1px var(--tinta-3); }
 /*APP:END*/
 /*D27:SKINS:START*/
 /* Domésticas 27 — skins. Un skin cambia solo el aspecto: se elige en Ajustes → Apariencia y queda en <html data-skin="…">.
@@ -583,6 +624,7 @@ const I = {
   escudo: '<path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6z"/><path d="M12 9v6M9 12h6"/>',
   ajustes: '<path d="M19.11 9.96L21.42 10.17L21.42 13.83L19.11 14.04A7.4 7.4 0 0 1 18.47 15.59L19.96 17.37L17.37 19.96L15.59 18.47A7.4 7.4 0 0 1 14.04 19.11L13.83 21.42L10.17 21.42L9.96 19.11A7.4 7.4 0 0 1 8.41 18.47L6.63 19.96L4.04 17.37L5.53 15.59A7.4 7.4 0 0 1 4.89 14.04L2.58 13.83L2.58 10.17L4.89 9.96A7.4 7.4 0 0 1 5.53 8.41L4.04 6.63L6.63 4.04L8.41 5.53A7.4 7.4 0 0 1 9.96 4.89L10.17 2.58L13.83 2.58L14.04 4.89A7.4 7.4 0 0 1 15.59 5.53L17.37 4.04L19.96 6.63L18.47 8.41A7.4 7.4 0 0 1 19.11 9.96Z"/><circle cx="12" cy="12" r="3"/>',
   volver: '<path d="M15 5l-7 7 7 7"/>',
+  casa: '<path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 9.8v9.7h11V9.8"/><path d="M10 19.5v-5h4v5"/>',
   doc: '<path d="M7 3.5h6.5L18 8v12.5H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M13.5 3.5V8H18"/><path d="M9.5 12.5h5M9.5 16h5"/>',
   enlace: '<path d="M14 5h5v5"/><path d="M19 5l-8 8"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
 };
@@ -946,11 +988,66 @@ function vistaCreditos() {
     if (!xs.length) return;
     html += seccion(titulo) + '<ul class="d-lista d-vidrio">' + xs.map(({ c, e }) => {
       const sub = tipo === 'abonos' ? 'Abonado ' + F.pesos(e.abonado) + ' de ' + F.pesos(e.inicial) : e.rem ? 'Cuota ' + (e.k + 1) + ' de ' + e.n + ' · ' + F.montoCredito(c.cuota, c) + (e.pagoEsteMes ? ' · pagada este mes' : '') : 'Pagado';
-      return fila({ icono: tipo === 'hipotecario' ? 'casa' : 'moneda', titulo: esc(c.nombre), sub: esc(sub), valor: F.montoCredito(e.saldo, c) + `<small>${Math.min(e.rem ? 99 : 100, Math.floor(e.pct * 100))} % pagado</small>`, a: 'hoja', attrs: `data-h="credito-ver" data-id="${esc(c.id)}"`, chev: true, cls: 'c-ajustar' });
+      return fila({ icono: tipo === 'hipotecario' ? 'casa' : 'moneda', titulo: esc(c.nombre), sub: esc(sub), valor: F.montoCredito(e.saldo, c) + `<small>${pctPagado(e)} pagado</small>`, a: 'credito', attrs: `data-id="${esc(c.id)}"`, chev: true, cls: 'c-ajustar' });
     }).join('') + '</ul>';
   });
   if (CR.lista.some((x) => x.c.tipo !== 'consumo')) html += '<p class="c-nota">El hipotecario (en UF) y las deudas con abonos no se suman al total de consumo.</p>';
   return html + estadoSync();
+}
+
+/* ---------- Página de un crédito ---------- */
+const pctPagado = (e) => Math.min(e.rem ? 99 : 100, Math.floor(e.pct * 100)) + ' %';
+const cuotaTxt = (c) => (c.moneda === 'UF' ? 'UF ' + String(c.cuota).replace('.', ',') : F.pesos(c.cuota));
+function creditoActual() { return (vista('creditos.json').creditos || []).find((c) => c.id === ui.credito) || null; }
+// Anillo de avance (cuotas pagadas o parte abonada) con su leyenda y, si corresponde, la barra de la deuda pagada
+function tarjetaAvance({ frac, centro, bajo, leyenda, medidor, etiqueta }) {
+  const R = 80, C = 2 * Math.PI * R, f = Math.max(0, Math.min(1, frac || 0));
+  const arco = f > 0 ? `<circle class="c-arco" cx="92" cy="92" r="${R}" fill="none" stroke-width="14" stroke-linecap="${f >= 1 ? 'butt' : 'round'}" style="--c:${C.toFixed(2)}px;stroke-dasharray:${(f * C).toFixed(2)}px ${C.toFixed(2)}px"/>` : '';
+  let html = `<section class="d-vidrio c-avance" role="img" aria-label="${esc(etiqueta)}"><div class="c-dona" aria-hidden="true">` +
+    `<svg viewBox="0 0 184 184" width="184" height="184"><circle class="c-pista" cx="92" cy="92" r="${R}" fill="none" stroke-width="14"/>${arco}</svg>` +
+    `<div class="c-dona-centro"><b>${centro}</b><span>${bajo}</span></div></div>` +
+    `<div class="c-leyenda" aria-hidden="true">${leyenda.map(([t, v], i) => `<span><i class="c-muestra${i ? ' c-muestra--falta' : ''}"></i>${t} <b>${v}</b></span>`).join('')}</div>`;
+  if (medidor) html += `<div class="c-medidor" aria-hidden="true"><div class="c-medidor-cab"><span>${medidor.titulo}</span><b>${medidor.cifra}</b></div>` +
+    `<div class="c-medidor-barra"><i style="width:${(Math.max(0, Math.min(1, medidor.frac)) * 100).toFixed(1)}%"></i></div>` +
+    `<div class="c-medidor-pie"><span>${medidor.izq}</span><span>${medidor.der}</span></div></div>`;
+  return html + '</section>';
+}
+function vistaCredito() {
+  const D = datos(), x = D.CR.lista.find((y) => y.c.id === ui.credito);
+  if (!x) return '';
+  const { c, e } = x, m = (v) => F.montoCredito(v, c), id = esc(c.id), h = D.h;
+  const cuando2 = (f) => (F.esFecha(f) ? cuando(f, h) : 'Sin fecha');
+  let html;
+  if (c.tipo === 'abonos') {
+    const abonos = c.abonos || [];
+    html = heroe('Pendiente', e.rem ? m(e.saldo) : 'Pagada', [['Abonado', m(e.abonado)], ['Deuda inicial', m(e.inicial)]], null, e.rem ? false : 'texto');
+    html += tarjetaAvance({ frac: e.pct, centro: pctPagado(e), bajo: 'abonado', leyenda: [['Abonado', m(e.abonado)], ['Pendiente', m(e.saldo)]],
+      etiqueta: 'Abonado ' + pctPagado(e) + ' de la deuda: ' + m(e.abonado) + ' de ' + m(e.inicial) });
+    if (e.rem) html += `<div class="c-botones"><button class="d-boton" data-a="hoja" data-h="abono-credito" data-id="${id}">Registrar abono</button></div>`;
+    html += seccion('Abonos', abonos.length ? `<span class="c-seccion-nota">${abonos.length}</span>` : '') + '<ul class="d-lista d-vidrio">' +
+      (abonos.slice().reverse().slice(0, 24).map((a) => fila({ titulo: 'Abono', sub: cuando2(a.fecha), valor: m(a.monto) })).join('') || fila({ titulo: 'Sin abonos todavía' })) + '</ul>';
+    html += '<div class="c-botones">' + (abonos.length ? `<button class="d-boton d-boton--discreto" data-a="deshacer-abono" data-id="${id}" data-confirmar="Toca de nuevo para quitar el último abono">Quitar el último abono</button>` : '');
+  } else {
+    const pagos = c.pagos || [], previas = Math.max(0, Math.min(e.n, c.pagadas_inicial || 0)), ult = pagos[pagos.length - 1];
+    html = heroe('Saldo', e.rem ? m(e.saldo) : 'Pagado', e.rem ? [['Cuota', cuotaTxt(c)], ['Término', e.termino ? ymTxt(e.termino) : '—']] : [['Deuda inicial', m(e.inicial)], ['Cuotas', String(e.n)]], null, e.rem ? false : 'texto');
+    html += tarjetaAvance({ frac: e.n ? e.k / e.n : 0, centro: String(e.k), bajo: 'de ' + e.n + (e.n === 1 ? ' cuota' : ' cuotas'),
+      leyenda: [[e.k === 1 ? 'Pagada' : 'Pagadas', e.k], [e.rem === 1 ? 'Falta' : 'Faltan', e.rem]],
+      medidor: { titulo: 'Deuda pagada', cifra: pctPagado(e), frac: e.rem ? e.pct : 1, izq: 'Pagado <b>' + m(Math.max(0, e.inicial - e.saldo)) + '</b>', der: 'de <b>' + m(e.inicial) + '</b>' },
+      etiqueta: e.k + ' de ' + e.n + ' cuotas pagadas; deuda pagada ' + pctPagado(e) + ', saldo ' + m(e.saldo) });
+    if (e.rem) html += `<div class="c-botones"><button class="d-boton" data-a="hoja" data-h="pago-cuota" data-id="${id}">Registrar pago de cuota ${e.k + 1}</button></div>`;
+    html += seccion('Detalle') + '<ul class="d-lista d-vidrio">' +
+      fila({ titulo: 'Cuota', valor: cuotaTxt(c) }) +
+      fila({ titulo: 'Tasa', valor: String(c.tasa).replace('.', ',') + ' % ' + (c.tasa_tipo === 'anual' ? 'anual' : 'mensual') }) +
+      (e.rem ? fila({ titulo: 'Próxima cuota', sub: 'Interés ' + m(e.interesProx) + ' · capital ' + m(e.capitalProx), valor: (e.k + 1) + ' de ' + e.n }) : '') +
+      fila({ titulo: 'Falta pagar en cuotas', sub: e.rem ? 'Interés por pagar ' + m(e.interesRest) : '', valor: m(e.porPagar) }) +
+      (e.termino ? fila({ titulo: 'Término estimado', valor: ymTxt(e.termino) }) : '') + '</ul>';
+    if (pagos.length || e.rem) html += seccion('Pagos registrados', pagos.length ? `<span class="c-seccion-nota">${pagos.length}</span>` : '') + '<ul class="d-lista d-vidrio">' +
+      (pagos.map((p, i) => ({ p, num: Math.min(e.n, previas + i + 1) })).reverse().slice(0, 24).map(({ p, num }) => fila({ titulo: 'Cuota ' + num, sub: cuando2(p.fecha), valor: cuotaTxt(c) })).join('') ||
+        fila({ titulo: 'Sin pagos registrados todavía' })) + '</ul>';
+    if (previas) html += `<p class="c-nota">${previas === 1 ? 'La primera cuota se ingresó como pagada' : 'Las primeras ' + previas + ' cuotas se ingresaron como pagadas'} al agregar el crédito.</p>`;
+    html += '<div class="c-botones">' + (pagos.length ? `<button class="d-boton d-boton--discreto" data-a="deshacer-pago" data-id="${id}" data-confirmar="Toca de nuevo para quitar el último pago">Quitar el último pago${ult && F.esFecha(ult.fecha) ? ' (' + F.fechaCorta(ult.fecha) + ')' : ''}</button>` : '');
+  }
+  return html + `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="credito" data-id="${id}">Editar datos</button></div>` + estadoSync();
 }
 
 /* ---------- Más ---------- */
@@ -1158,28 +1255,6 @@ function contenidoHoja() {
       `<div class="c-chips" style="margin-top:10px">${M.sugerencias.map((t2) => `<button type="button" class="c-mini c-mini--discreto" data-a="sugerencia" data-v="${esc(t2)}">${esc(t2)}</button>`).join('')}</div>` +
       campo('Fecha', `<input type="date" name="fecha" value="${v.fecha}" max="${h}" required>`) + pie(x ? 'Guardar cambios' : 'Anotar aporte', x ? borrarBtn('aporte') : '') + '</form>';
   }
-  if (t === 'credito-ver') {
-    const x = D.CR.lista.find((y) => y.c.id === hoja.id);
-    if (!x) return '<h2>Crédito no encontrado</h2><div class="c-pila"><button class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
-    const { c, e } = x, m = (v) => F.montoCredito(v, c);
-    let html = `<h2>${esc(c.nombre)}</h2>`;
-    if (c.tipo === 'abonos') {
-      html += `<p>Pendiente <b>${m(e.saldo)}</b> de ${m(e.inicial)} · abonado ${m(e.abonado)}.</p>` + '<ul class="d-lista d-vidrio">' +
-        ((c.abonos || []).slice().reverse().slice(0, 8).map((a) => fila({ titulo: 'Abono', sub: F.esFecha(a.fecha) ? cuando(a.fecha, h) : 'sin fecha', valor: m(a.monto) })).join('') || fila({ titulo: 'Sin abonos todavía' })) + '</ul>' +
-        `<div class="c-pila"><button class="d-boton" data-a="hoja" data-h="abono-credito" data-id="${esc(c.id)}">Registrar abono</button>` +
-        ((c.abonos || []).length ? `<button class="d-boton d-boton--discreto" data-a="deshacer-abono" data-id="${esc(c.id)}" data-confirmar="Toca de nuevo para quitar el último abono">Quitar el último abono</button>` : '');
-    } else {
-      html += `<p>Saldo <b>${m(e.saldo)}</b> · ${e.k} de ${e.n} cuotas pagadas · ${Math.min(e.rem ? 99 : 100, Math.floor(e.pct * 100))} % de la deuda inicial (${m(e.inicial)}).</p>` + '<ul class="d-lista d-vidrio">' +
-        fila({ titulo: 'Cuota', valor: c.moneda === 'UF' ? 'UF\u00a0' + String(c.cuota).replace('.', ',') : F.pesos(c.cuota) }) +
-        fila({ titulo: 'Tasa', valor: String(c.tasa).replace('.', ',') + ' % ' + (c.tasa_tipo === 'anual' ? 'anual' : 'mensual') }) +
-        (e.rem ? fila({ titulo: 'Próxima cuota', sub: 'Interés ' + m(e.interesProx) + ' · capital ' + m(e.capitalProx) }) : '') +
-        fila({ titulo: 'Falta pagar en cuotas', sub: 'Interés por pagar ' + m(e.interesRest), valor: m(e.porPagar) }) +
-        (e.termino ? fila({ titulo: 'Término estimado', valor: ymTxt(e.termino) }) : '') + '</ul>' +
-        `<div class="c-pila">${e.rem ? `<button class="d-boton" data-a="hoja" data-h="pago-cuota" data-id="${esc(c.id)}">Registrar pago de cuota</button>` : ''}` +
-        ((c.pagos || []).length ? `<button class="d-boton d-boton--discreto" data-a="deshacer-pago" data-id="${esc(c.id)}" data-confirmar="Toca de nuevo para quitar el último pago">Quitar el último pago${(c.pagos[c.pagos.length - 1] || {}).fecha && F.esFecha(c.pagos[c.pagos.length - 1].fecha) ? ' (' + F.fechaCorta(c.pagos[c.pagos.length - 1].fecha) + ')' : ''}</button>` : '');
-    }
-    return html + `<button class="d-boton d-boton--discreto" data-a="hoja" data-h="credito" data-id="${esc(c.id)}">Editar datos</button><button type="button" class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>`;
-  }
   if (t === 'pago-cuota' || t === 'abono-credito') {
     const x = D.CR.lista.find((y) => y.c.id === hoja.id);
     if (!x) return '';
@@ -1222,7 +1297,7 @@ function contenidoHoja() {
     '<h3>LiderBCI</h3><p>Se anota a mano. Total del periodo = compras − abonos y devoluciones. Puntos: 6 % en Lider, nada en Jumbo, Unimarc, Tottus, Santa Isabel, El 9 y Don Salva, y 1 % en el resto. Al pagar, «Cerrar periodo» guarda los puntos y deja el total en cero. Al tocar «Puntos» en el recuadro se abre su detalle, con los canjes y ajustes.</p>' +
     '<h3>Pagos del mes</h3><p>La lista de pagos de cada mes, en dos secciones. Avisa los pendientes de inicio de mes desde el día 5 y los de mitad de mes desde el 20.</p>' +
     '<h3>Mesadas</h3><p>Los aportes a Piti y Emi, con su asunto. En el Resumen se ve lo entregado en el mes.</p>' +
-    '<h3>Mis créditos</h3><p>Se ingresan a mano. Saldo = valor presente de las cuotas que faltan con la tasa del crédito (la anual se divide por 12), más el ajuste; cada crédito se redondea a $10.000 y el total de consumo a $100.000. El hipotecario va en UF y no se suma al total. Las deudas con abonos no tienen interés: pendiente menos abonos.</p>' +
+    '<h3>Mis créditos</h3><p>Al tocar un crédito se abre su página: cuotas pagadas en el anillo, deuda pagada en la barra, detalle y pagos registrados. Se vuelve con «Mis créditos» arriba a la izquierda o deslizando desde el borde izquierdo.</p><p>Se ingresan a mano. Saldo = valor presente de las cuotas que faltan con la tasa del crédito (la anual se divide por 12), más el ajuste; cada crédito se redondea a $10.000 y el total de consumo a $100.000. El hipotecario va en UF y no se suma al total. Las deudas con abonos no tienen interés: pendiente menos abonos.</p>' +
     '<h3>Dónde se guarda</h3><p>En GitHub (pablocarvallo/datos), a través de la función domesticas-api, con la llave de este iPhone. Sin conexión, los cambios esperan en el iPhone.</p>' +
     '<div class="c-pila"><button class="d-boton d-boton--discreto" data-a="cerrar">Cerrar</button></div>';
   return '';
@@ -1317,6 +1392,39 @@ function valoresMov(f) {
   return v;
 }
 
+/* ---------- Navegación ---------- */
+// Cambia de página. La de un crédito entra desde la derecha y, al volver, la lista de créditos queda donde estaba.
+let tPaso = 0, scrollLista = 0;
+function irA(tab, idCredito) {
+  const antes = ui.tab;
+  if (antes === 'creditos' && tab === 'credito') scrollLista = window.scrollY;
+  ui.tab = tab; if (idCredito) ui.credito = idCredito;
+  guardarLS(CL.ui, ui);
+  render();
+  window.scrollTo(0, antes === 'credito' && tab === 'creditos' ? scrollLista : 0);
+  const paso = ui.tab === 'credito' && antes !== 'credito' ? 'c-avanzar' : antes === 'credito' && ui.tab !== 'credito' ? 'c-retroceder' : '';
+  if (!paso) return;
+  const v = $('vista'), c = $('cabecera');
+  [v, c].forEach((el) => { el.classList.remove('c-avanzar', 'c-retroceder'); void el.offsetWidth; el.classList.add(paso); });
+  clearTimeout(tPaso); tPaso = setTimeout(() => [v, c].forEach((el) => el.classList.remove(paso)), 900);
+}
+// Gesto de iOS para volver: deslizar el dedo desde el borde izquierdo hacia la derecha
+(function () {
+  let t = null;
+  document.addEventListener('touchstart', (e) => {
+    t = null;
+    if (ui.tab !== 'credito' || hoja || e.touches.length !== 1 || e.touches[0].clientX > 30) return;
+    t = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!t) return;
+    const p = e.changedTouches[0], dx = p.clientX - t.x, dy = Math.abs(p.clientY - t.y);
+    t = null;
+    if (dx > 70 && dy < dx * 0.6 && ui.tab === 'credito' && !hoja) irA('creditos');
+  });
+  document.addEventListener('touchcancel', () => { t = null; });
+})();
+
 /* ---------- Acciones ---------- */
 const ACCIONES = {
   'exportar-extracto'() {
@@ -1336,7 +1444,8 @@ const ACCIONES = {
     hacer('cuentas.json', { tipo: 'reabrirFacturacion', hasta: f }, 'reabre la facturación de Master que cerró el ' + f);
     repintarHoja(); avisar('Facturación reabierta', 'Ciérrala de nuevo cuando quieras');
   },
-  tab(el) { ui.tab = el.dataset.t; guardarLS(CL.ui, ui); window.scrollTo(0, 0); render(); },
+  tab(el) { irA(el.dataset.t); },
+  credito(el) { irA('credito', el.dataset.id); },
   ir(el) {
     const d = el.dataset.ir;
     if (d === 'pagos') ui.tab = 'pagos'; else { ui.tab = 'cuentas'; ui.cuenta = d; }
@@ -1348,8 +1457,8 @@ const ACCIONES = {
   hoja(el) { abrirHoja(el.dataset.h, { id: el.dataset.id || null, s: el.dataset.s || null, f: el.dataset.f || null, v: el.dataset.cuenta ? { cuenta: el.dataset.cuenta } : null, volver: el.dataset.volver || null }); },
   hija(el) { ui.hija = el.dataset.v; guardarLS(CL.ui, ui); render(); },
   sugerencia(el) { const i = $('hoja').querySelector('input[name="asunto"]'); if (i) i.value = el.dataset.v; },
-  'deshacer-pago'(el) { hacer('creditos.json', { tipo: 'deshacerPago', idCredito: el.dataset.id }, 'quita el último pago de un crédito'); repintarHoja(); avisar('Pago quitado'); },
-  'deshacer-abono'(el) { hacer('creditos.json', { tipo: 'deshacerAbono', idCredito: el.dataset.id }, 'quita el último abono de una deuda'); repintarHoja(); avisar('Abono quitado'); },
+  'deshacer-pago'(el) { hacer('creditos.json', { tipo: 'deshacerPago', idCredito: el.dataset.id }, 'quita el último pago de un crédito'); avisar('Pago quitado'); },
+  'deshacer-abono'(el) { hacer('creditos.json', { tipo: 'deshacerAbono', idCredito: el.dataset.id }, 'quita el último abono de una deuda'); avisar('Abono quitado'); },
   cerrar() { cerrarHoja(); },
   abrir(el) { window.open(el.dataset.url, '_blank', 'noopener'); },
   'mes-anterior'() {
@@ -1575,14 +1684,14 @@ const FORMULARIOS = {
     const fecha = f.fecha.value;
     if (!F.esFecha(fecha)) return errorHoja('Indica la fecha del pago.');
     hacer('creditos.json', { tipo: 'pagoCuota', idCredito: hoja.id, fecha }, 'pago de cuota ' + fecha);
-    const id = hoja.id; abrirHoja('credito-ver', { id }); avisar('Pago registrado');
+    cerrarHoja(); avisar('Pago registrado');
   },
   'abono-credito'(f) {
     const monto = montoDe(f.monto.value), fecha = f.fecha.value;
     if (!(monto > 0)) return errorHoja('Escribe el monto del abono.');
     if (!F.esFecha(fecha)) return errorHoja('Indica la fecha del abono.');
     hacer('creditos.json', { tipo: 'abonoCredito', idCredito: hoja.id, abono: { fecha, monto } }, 'abono de ' + F.pesos(monto));
-    const id = hoja.id; abrirHoja('credito-ver', { id }); avisar('Abono registrado');
+    cerrarHoja(); avisar('Abono registrado');
   },
   credito(f) {
     const dec = (v) => { const t = String(v || '').trim().replace(/\s|%|\$/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'); return /^-?(\d+\.?\d*|\.\d+)$/.test(t) ? parseFloat(t) : NaN; };
@@ -1678,19 +1787,25 @@ document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') cerrarHo
 
 /* ---------- Pintar ---------- */
 const PESTANAS = [['resumen', 'resumen', 'Resumen'], ['cuentas', 'cuentas', 'Cuentas'], ['pagos', 'pagos', 'Pagos'], ['ajustes', 'ajustes', 'Ajustes']];
-const VISTAS = ['resumen', 'cuentas', 'pagos', 'ajustes', 'mesadas', 'creditos'];
-function cabecera() {
+const VISTAS = ['resumen', 'cuentas', 'pagos', 'ajustes', 'mesadas', 'creditos', 'credito'];
+const volverA = (tab, texto) => `<button class="c-volver" data-a="tab" data-t="${tab}">${ico('volver', 16)}${texto}</button>`;
+function cabecera(cr) {
   const h = hoy();
   const t = { resumen: [F.tituloMes(h.slice(0, 7)), 'Finanzas'], cuentas: ['FAN, Master, LiderBCI y Copec', 'Cuentas'], pagos: ['Pagos del mes', 'Pagos'], ajustes: ['Finanzas ' + F.VERSION, 'Ajustes'],
-    mesadas: ['<button class="c-volver" data-a="tab" data-t="resumen">' + ico('volver', 16) + 'Resumen</button>', 'Mesadas'], creditos: ['<button class="c-volver" data-a="tab" data-t="resumen">' + ico('volver', 16) + 'Resumen</button>', 'Mis créditos'] }[ui.tab];
-  return `<div><span class="d-antetitulo">${t[0]}</span><h1>${t[1]}</h1></div><div class="d-acciones"><button class="d-boton-circular" data-a="ayuda" aria-label="Ayuda">${ico('ayuda', 20)}</button></div>`;
+    mesadas: [volverA('resumen', 'Resumen'), 'Mesadas'], creditos: [volverA('resumen', 'Resumen'), 'Mis créditos'], credito: [volverA('creditos', 'Mis créditos'), cr ? esc(cr.nombre) : ''] }[ui.tab];
+  const h1 = ui.tab === 'credito' ? `<h1 class="c-h1-detalle${cr && cr.nombre.length > 16 ? ' c-h1-largo' : ''}">` : '<h1>';
+  return `<div><span class="d-antetitulo">${t[0]}</span>${h1}${t[1]}</h1></div><div class="d-acciones"><button class="d-boton-circular" data-a="ayuda" aria-label="Ayuda">${ico('ayuda', 20)}</button></div>`;
 }
 function render() {
   if (!VISTAS.includes(ui.tab)) ui.tab = 'resumen';
-  $('cabecera').innerHTML = cabecera();
-  $('vista').innerHTML = { resumen: vistaResumen, cuentas: vistaCuentas, pagos: vistaPagos, ajustes: vistaAjustes, mesadas: vistaMesadas, creditos: vistaCreditos }[ui.tab]();
-  $('barraSup').textContent = { resumen: 'Finanzas', cuentas: NOMBRE[ui.cuenta], pagos: 'Pagos del mes', ajustes: 'Ajustes', mesadas: 'Mesadas', creditos: 'Mis créditos' }[ui.tab];
-  const activa = ui.tab === 'mesadas' || ui.tab === 'creditos' ? 'resumen' : ui.tab;
+  // La página de un crédito que ya no existe (se eliminó, aquí o en otro iPhone) vuelve a la lista
+  const cr = ui.tab === 'credito' ? creditoActual() : null;
+  if (ui.tab === 'credito' && !cr) { ui.tab = 'creditos'; guardarLS(CL.ui, ui); }
+  document.body.classList.toggle('en-detalle', ui.tab === 'credito');
+  $('cabecera').innerHTML = cabecera(cr);
+  $('vista').innerHTML = { resumen: vistaResumen, cuentas: vistaCuentas, pagos: vistaPagos, ajustes: vistaAjustes, mesadas: vistaMesadas, creditos: vistaCreditos, credito: vistaCredito }[ui.tab]();
+  $('barraSup').textContent = { resumen: 'Finanzas', cuentas: NOMBRE[ui.cuenta], pagos: 'Pagos del mes', ajustes: 'Ajustes', mesadas: 'Mesadas', creditos: 'Mis créditos', credito: cr ? cr.nombre : '' }[ui.tab];
+  const activa = ['mesadas', 'creditos', 'credito'].includes(ui.tab) ? 'resumen' : ui.tab;
   $('pestanas').innerHTML = PESTANAS.map(([id, ic, t]) => `<button data-a="tab" data-t="${id}"${activa === id ? ' aria-current="page"' : ''}>${ico(ic)}${t}</button>`).join('');
 }
 function aplicarPrefs() {

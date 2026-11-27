@@ -14,6 +14,9 @@ Mis créditos.
 - **Pagos**: pagos del mes en dos secciones, mes nuevo e historial.
 - **Mesadas**: aportes a Piti y Emi con su asunto, totales por hija y del mes, historial.
 - **Mis créditos**: consumo, hipotecario (UF) y deudas con abonos; pagos de cuota, abonos, saldo y término estimado.
+  Al tocar un crédito se abre su página a pantalla completa (sin la barra de pestañas): saldo, anillo con las cuotas
+  pagadas (o la parte abonada), barra de la deuda pagada, detalle, pagos o abonos registrados y sus botones. «‹ Mis
+  créditos» o deslizar desde el borde izquierdo vuelve a la lista.
 - **Ajustes**: conexión, traer datos de las apps antiguas, apariencia (skin Vidrio o Tinta electrónica, tema y vidrio) y
   respaldo.
 
